@@ -14,10 +14,18 @@ const options = {
     ],
     tags: [
       { name: 'Auth', description: 'Register and login' },
+      { name: 'Profile', description: 'Logged-in user profile' },
       { name: 'Health', description: 'Server health check' },
       { name: 'Users', description: 'User CRUD operations' },
     ],
     components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+        },
+      },
       schemas: {
         User: {
           type: 'object',
@@ -31,6 +39,8 @@ const options = {
               enum: ['Buyer', 'Seller', 'Broker', 'Admin', 'Super-Admin'],
               example: 'Buyer',
             },
+            image: { type: 'string', example: 'https://example.com/avatar.jpg' },
+            aadharNo: { type: 'string', example: '123456789012' },
           },
         },
       },

@@ -14,6 +14,7 @@ const userSchema = new mongoose.Schema(
     phone: {
       type: String,
       required: true,
+      unique: true,
       trim: true,
     },
     role: {
@@ -21,6 +22,16 @@ const userSchema = new mongoose.Schema(
       required: true,
       enum: ALL_ROLES,
       default: ROLES.BUYER,
+    },
+    image: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    aadharNo: {
+      type: String,
+      trim: true,
+      default: "",
     },
     password: {
       type: String,

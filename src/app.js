@@ -8,6 +8,7 @@ const config = require("./config");
 
 const authRoutes = require("./routes/auth");
 const healthRoutes = require("./routes/health");
+const profileRoutes = require("./routes/profile");
 const userRoutes = require("./routes/users");
 
 const app = express();
@@ -73,6 +74,7 @@ app.get("/reference/", (req, res) => res.redirect(302, "/reference"));
 // API routes
 app.use("/api/auth", authRoutes);
 app.use("/api/health", healthRoutes);
+app.use("/api/profile", profileRoutes);
 app.use("/api/users", userRoutes);
 
 // 404

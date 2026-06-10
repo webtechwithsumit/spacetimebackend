@@ -24,6 +24,10 @@ function isAdminRole(role) {
   return ADMIN_ROLES.includes(role);
 }
 
+function isValidRole(role) {
+  return ALL_ROLES.includes(role);
+}
+
 module.exports = {
   ROLES,
   PUBLIC_REGISTER_ROLES,
@@ -31,4 +35,5 @@ module.exports = {
   ALL_ROLES,
   isPublicRegisterRole,
   isAdminRole,
+  isValidRole,
 };

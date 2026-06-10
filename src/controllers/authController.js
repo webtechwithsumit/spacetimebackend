@@ -52,22 +52,40 @@ const register = async (req, res) => {
     });
   }
 
-  const existingUser = await User.findOne({ email });
+  const normalizedPhone = normalizePhone(phone);
+
+  const existingUser = await User.findOne({
+    $or: [{ email }, { phone: normalizedPhone }],
+  });
   if (existingUser) {
     return res.status(400).json({
       success: false,
-      message: "Email already registered",
+      message:
+        existingUser.email === email
+          ? "Email already registered"
+          : "Phone number already registered",
     });
   }
 
   const hashedPassword = await hashPassword(password);
-  await User.create({
-    name,
-    email,
-    phone: normalizePhone(phone),
-    role,
-    password: hashedPassword,
-  });
+
+  try {
+    await User.create({
+      name,
+      email,
+      phone: normalizedPhone,
+      role,
+      password: hashedPassword,
+    });
+  } catch (err) {
+    if (err.code === 11000 && err.keyPattern?.phone) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number already registered",
+      });
+    }
+    throw err;
+  }
 
   res.status(201).json({
     success: true,

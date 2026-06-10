@@ -1,10 +1,16 @@
 function normalizePhone(phone) {
-  return phone.replace(/[\s-]/g, '');
+  if (!phone) return '';
+  const cleaned = phone.replace(/[\s-]/g, '');
+  return cleaned.startsWith('+91') ? cleaned.slice(3) : cleaned;
 }
 
 function isValidPhone(phone) {
   const normalized = normalizePhone(phone);
-  return /^(\+91)?[6-9]\d{9}$/.test(normalized);
+  return /^[6-9]\d{9}$/.test(normalized);
 }
 
-module.exports = { normalizePhone, isValidPhone };
+function phonesEqual(phoneA, phoneB) {
+  return normalizePhone(phoneA) === normalizePhone(phoneB);
+}
+
+module.exports = { normalizePhone, isValidPhone, phonesEqual };
