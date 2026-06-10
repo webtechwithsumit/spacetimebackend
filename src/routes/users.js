@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const userController = require("../controllers/userController");
 const authenticate = require("../middleware/authenticate");
+const { requireAdmin } = require("../middleware/requireAdmin");
 const requireSuperAdmin = require("../middleware/requireSuperAdmin");
 
 /**
@@ -21,6 +22,8 @@ const requireSuperAdmin = require("../middleware/requireSuperAdmin");
  *         description: Super-Admin access required
  */
 router.get("/", authenticate, requireSuperAdmin, userController.getAll);
+
+router.get("/brokers", authenticate, requireAdmin, userController.getBrokers);
 
 /**
  * @openapi

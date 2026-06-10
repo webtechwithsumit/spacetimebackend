@@ -81,6 +81,15 @@ const getAll = async (req, res) => {
   res.json({ success: true, data: users });
 };
 
+const getBrokers = async (req, res) => {
+  const brokers = await User.find({ role: "Broker" })
+    .select("name email _id")
+    .sort({ name: 1 })
+    .lean();
+
+  res.json({ success: true, data: brokers });
+};
+
 const getById = async (req, res) => {
   const { id } = req.params;
   if (!isValidObjectId(id)) {
@@ -284,6 +293,7 @@ const remove = async (req, res) => {
 module.exports = {
   createByAdmin,
   getAll,
+  getBrokers,
   getById,
   updateByAdmin,
   save,

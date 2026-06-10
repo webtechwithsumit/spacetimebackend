@@ -179,6 +179,10 @@ const update = async (req, res) => {
     updates.parkingTypes = parseStringArrayField(req.body.parkingTypes) ?? [];
   }
 
+  if (req.body.tags !== undefined) {
+    updates.tags = parseStringArrayField(req.body.tags) ?? [];
+  }
+
   const mediaTitle = updates.title ?? property.title;
   const hasNewMedia =
     req.files &&
