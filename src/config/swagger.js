@@ -13,6 +13,7 @@ const options = {
       { url: 'http://localhost:3002' },
     ],
     tags: [
+      { name: 'Auth', description: 'Register and login' },
       { name: 'Health', description: 'Server health check' },
       { name: 'Users', description: 'User CRUD operations' },
     ],
@@ -24,6 +25,12 @@ const options = {
             id: { type: 'string', example: '1' },
             name: { type: 'string', example: 'Rahul' },
             email: { type: 'string', example: 'rahul@example.com' },
+            phone: { type: 'string', example: '9876543210' },
+            role: {
+              type: 'string',
+              enum: ['Buyer', 'Seller', 'Broker', 'Admin', 'Super-Admin'],
+              example: 'Buyer',
+            },
           },
         },
       },

@@ -6,6 +6,7 @@ const rateLimit = require("express-rate-limit");
 const swaggerSpec = require("./config/swagger");
 const config = require("./config");
 
+const authRoutes = require("./routes/auth");
 const healthRoutes = require("./routes/health");
 const userRoutes = require("./routes/users");
 
@@ -70,6 +71,7 @@ app.get("/reference", serveReference);
 app.get("/reference/", (req, res) => res.redirect(302, "/reference"));
 
 // API routes
+app.use("/api/auth", authRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/api/users", userRoutes);
 

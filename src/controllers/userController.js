@@ -34,15 +34,10 @@ const save = async (req, res) => {
     if (user) return res.json({ success: true, data: user, created: false });
   }
 
-  try {
-    const user = await User.create(payload);
-    res.status(201).json({ success: true, data: user.toObject(), created: true });
-  } catch (err) {
-    if (err.code === 11000) {
-      return res.status(400).json({ success: false, message: 'Email already exists' });
-    }
-    throw err;
-  }
+  return res.status(400).json({
+    success: false,
+    message: 'Use POST /api/auth/register to create a new user',
+  });
 };
 
 const remove = async (req, res) => {

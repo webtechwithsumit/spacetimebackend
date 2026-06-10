@@ -12,4 +12,6 @@ module.exports = {
   mongoUri: process.env.MONGODB_URI,
   allowedOrigins,
   baseUrl,
+  jwtSecret: process.env.JWT_SECRET || 'spacetime-dev-secret-change-in-production',
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
 };
