@@ -19,6 +19,10 @@ const {
   trimString,
 } = require("../utils/propertyFields");
 const { isValidObjectId } = require("../utils/validateId");
+const {
+  buildPaginationMeta,
+  parsePagination,
+} = require("../utils/pagination");
 
 function normalizeMediaList(items) {
   if (!Array.isArray(items)) return [];
@@ -37,25 +41,56 @@ const getAll = async (req, res) => {
     });
   }
 
+  const { page, limit, skip } = parsePagination(req.query);
   const filter = buildPropertyListFilter(req.user);
 
-  const properties = await Property.find(filter)
+  const titleQuery = trimString(req.query.title);
+  if (titleQuery) {
+    filter.title = { $regex: titleQuery, $options: "i" };
+  }
+
+  const query = Property.find(filter)
     .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
     .populate("sellerId", "name email role")
     .lean();
 
-  res.json({ success: true, data: properties });
+  const [properties, total] = await Promise.all([
+    query,
+    Property.countDocuments(filter),
+  ]);
+
+  res.json({
+    success: true,
+    data: properties,
+    pagination: buildPaginationMeta(page, limit, total),
+  });
 };
 
 const getLiveAuctions = async (req, res) => {
-  const properties = await Property.find(buildLiveAuctionsFilter())
+  const { page, limit, skip } = parsePagination(req.query);
+  const filter = buildLiveAuctionsFilter();
+
+  const query = Property.find(filter)
     .sort({ auctionEndDateTime: 1, createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
     .select(
       "title description images category city state address microMarketLocality buildingName startingBidAmount bidIncrement auctionStartDateTime auctionEndDateTime ribbonText amenities status auctionStatus totalPrice pricePerSqft",
     )
     .lean();
 
-  res.json({ success: true, data: properties });
+  const [properties, total] = await Promise.all([
+    query,
+    Property.countDocuments(filter),
+  ]);
+
+  res.json({
+    success: true,
+    data: properties,
+    pagination: buildPaginationMeta(page, limit, total),
+  });
 };
 
 const getById = async (req, res) => {

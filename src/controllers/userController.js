@@ -3,6 +3,10 @@ const { hashPassword, sanitizeUser } = require("../utils/auth");
 const { normalizePhone, isValidPhone, phonesEqual } = require("../utils/phone");
 const { normalizeAadharNo, isValidAadharNo } = require("../utils/aadhar");
 const { isValidObjectId } = require("../utils/validateId");
+const {
+  buildPaginationMeta,
+  parsePagination,
+} = require("../utils/pagination");
 
 const createByAdmin = async (req, res) => {
   const name = req.body.name?.trim();
@@ -77,8 +81,18 @@ const createByAdmin = async (req, res) => {
 };
 
 const getAll = async (req, res) => {
-  const users = await User.find().lean();
-  res.json({ success: true, data: users });
+  const { page, limit, skip } = parsePagination(req.query);
+
+  const [users, total] = await Promise.all([
+    User.find().sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    User.countDocuments(),
+  ]);
+
+  res.json({
+    success: true,
+    data: users,
+    pagination: buildPaginationMeta(page, limit, total),
+  });
 };
 
 const getBrokers = async (req, res) => {
