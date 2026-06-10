@@ -50,6 +50,7 @@ const propertySchema = new mongoose.Schema(
     propertyTax: { type: String, trim: true, default: "" },
     estimatedMonthlyMaintenance: { type: String, trim: true, default: "" },
     status: { type: String, trim: true, default: "" },
+    occupancyStatus: { type: String, trim: true, default: "" },
     yearBuiltRenovated: { type: String, trim: true, default: "" },
     tags: { type: [String], default: [] },
     amenities: { type: String, trim: true, default: "" },

@@ -25,6 +25,20 @@ router.get("/", authenticate, propertyController.getAll);
 
 /**
  * @openapi
+ * /api/properties/live-auctions:
+ *   get:
+ *     summary: Get live auction properties (Buyer-facing)
+ *     tags: [Properties]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of live auction properties
+ */
+router.get("/live-auctions", propertyController.getLiveAuctions);
+
+/**
+ * @openapi
  * /api/properties/{id}:
  *   get:
  *     summary: Get property by ID

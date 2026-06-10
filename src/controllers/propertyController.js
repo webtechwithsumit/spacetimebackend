@@ -1,5 +1,11 @@
 const Property = require("../models/Property");
-const { canModifyProperty } = require("../middleware/requirePropertyManager");
+const {
+  buildLiveAuctionsFilter,
+  buildPropertyListFilter,
+  canAccessPropertyList,
+  canModifyProperty,
+  canViewProperty,
+} = require("../middleware/requirePropertyManager");
 const {
   buildLegalDocuments,
   hasLegalDocumentUploads,
@@ -24,9 +30,29 @@ function normalizeMediaList(items) {
 const activePropertyFilter = { isDeleted: { $ne: true } };
 
 const getAll = async (req, res) => {
-  const properties = await Property.find(activePropertyFilter)
+  if (!canAccessPropertyList(req.user)) {
+    return res.status(403).json({
+      success: false,
+      message: "Use live auctions to browse properties as a buyer",
+    });
+  }
+
+  const filter = buildPropertyListFilter(req.user);
+
+  const properties = await Property.find(filter)
     .sort({ createdAt: -1 })
     .populate("sellerId", "name email role")
+    .lean();
+
+  res.json({ success: true, data: properties });
+};
+
+const getLiveAuctions = async (req, res) => {
+  const properties = await Property.find(buildLiveAuctionsFilter())
+    .sort({ auctionEndDateTime: 1, createdAt: -1 })
+    .select(
+      "title description images category city state address microMarketLocality buildingName startingBidAmount bidIncrement auctionStartDateTime auctionEndDateTime ribbonText amenities status auctionStatus totalPrice pricePerSqft",
+    )
     .lean();
 
   res.json({ success: true, data: properties });
@@ -48,6 +74,13 @@ const getById = async (req, res) => {
     return res
       .status(404)
       .json({ success: false, message: "Property not found" });
+  }
+
+  if (!canViewProperty(req.user, property)) {
+    return res.status(403).json({
+      success: false,
+      message: "You do not have permission to view this property",
+    });
   }
 
   res.json({ success: true, data: property });
@@ -102,10 +135,11 @@ const create = async (req, res) => {
       "pricePerSqft",
       "propertyTax",
       "estimatedMonthlyMaintenance",
-      "status",
+      "occupancyStatus",
     ]),
     title: trimmedTitle,
     category: trimmedCategory,
+    status: trimString(req.body.status) || "Draft",
     parkingTypes,
     images: mergePropertyMedia(req.files, "images", trimmedTitle),
     legalDocuments: buildLegalDocuments(
@@ -277,4 +311,11 @@ const remove = async (req, res) => {
   });
 };
 
-module.exports = { getAll, getById, create, update, remove };
+module.exports = {
+  getAll,
+  getLiveAuctions,
+  getById,
+  create,
+  update,
+  remove,
+};
