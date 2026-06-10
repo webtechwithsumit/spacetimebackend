@@ -1,5 +1,4 @@
 const User = require("../models/User");
-const { isPublicRegisterRole, isAdminRole } = require("../constants/roles");
 const {
   hashPassword,
   comparePassword,
@@ -22,18 +21,11 @@ const register = async (req, res) => {
     });
   }
 
-  if (isAdminRole(role)) {
+  if (role === "Admin" || role === "Super-Admin") {
     return res.status(403).json({
       success: false,
       message:
         "Admin and Super-Admin roles can only be assigned by a Super-Admin",
-    });
-  }
-
-  if (!isPublicRegisterRole(role)) {
-    return res.status(400).json({
-      success: false,
-      message: "role must be one of: Buyer, Seller, Broker",
     });
   }
 

@@ -1,10 +1,8 @@
-const { ROLES } = require('../constants/roles');
-
 const requireSuperAdmin = (req, res, next) => {
-  if (req.user?.role !== ROLES.SUPER_ADMIN) {
+  if (req.user?.role !== "Super-Admin") {
     return res.status(403).json({
       success: false,
-      message: 'Super-Admin access required',
+      message: "Super-Admin access required",
     });
   }
 

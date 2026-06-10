@@ -42,10 +42,7 @@ router.get("/", authenticate, requireSuperAdmin, userController.getAll);
  *               name: { type: string, example: John Doe }
  *               email: { type: string, example: john@example.com }
  *               phone: { type: string, example: '9876543210' }
- *               role:
- *                 type: string
- *                 enum: [Buyer, Seller, Broker, Admin, Super-Admin]
- *                 example: Admin
+ *               role: { type: string, example: Admin }
  *               password: { type: string, example: secret123 }
  *     responses:
  *       201:
@@ -66,8 +63,10 @@ router.post(
  * @openapi
  * /api/users/{id}:
  *   get:
- *     summary: Get user by ID
+ *     summary: Get user by ID (Super-Admin only)
  *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -77,10 +76,56 @@ router.post(
  *     responses:
  *       200:
  *         description: User found
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Super-Admin access required
  *       404:
  *         description: User not found
  */
-router.get("/:id", userController.getById);
+router.get("/:id", authenticate, requireSuperAdmin, userController.getById);
+
+/**
+ * @openapi
+ * /api/users/{id}:
+ *   put:
+ *     summary: Update user (Super-Admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name: { type: string }
+ *               email: { type: string }
+ *               phone: { type: string }
+ *               role: { type: string }
+ *               password: { type: string, description: 'Optional new password' }
+ *               image: { type: string }
+ *               aadharNo: { type: string }
+ *     responses:
+ *       200:
+ *         description: User updated
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Super-Admin access required
+ *       404:
+ *         description: User not found
+ */
+router.put("/:id", authenticate, requireSuperAdmin, userController.updateByAdmin);
 
 /**
  * @openapi

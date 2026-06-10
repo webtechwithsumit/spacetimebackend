@@ -19,10 +19,7 @@ const authController = require("../controllers/authController");
  *               name: { type: string, example: John Doe }
  *               email: { type: string, example: john@example.com }
  *               phone: { type: string, example: '9876543210' }
- *               role:
- *                 type: string
- *                 enum: [Buyer, Seller, Broker]
- *                 example: Buyer
+ *               role: { type: string, example: Buyer }
  *               password: { type: string, example: secret123 }
  *     responses:
  *       201:

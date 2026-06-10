@@ -1,7 +1,7 @@
 const User = require("../models/User");
-const { ALL_ROLES, isValidRole } = require("../constants/roles");
 const { hashPassword, sanitizeUser } = require("../utils/auth");
-const { normalizePhone, isValidPhone } = require("../utils/phone");
+const { normalizePhone, isValidPhone, phonesEqual } = require("../utils/phone");
+const { normalizeAadharNo, isValidAadharNo } = require("../utils/aadhar");
 const { isValidObjectId } = require("../utils/validateId");
 
 const createByAdmin = async (req, res) => {
@@ -15,13 +15,6 @@ const createByAdmin = async (req, res) => {
     return res.status(400).json({
       success: false,
       message: "name, email, phone, role and password are required",
-    });
-  }
-
-  if (!isValidRole(role)) {
-    return res.status(400).json({
-      success: false,
-      message: `role must be one of: ${ALL_ROLES.join(", ")}`,
     });
   }
 
@@ -94,9 +87,156 @@ const getById = async (req, res) => {
     return res.status(400).json({ success: false, message: "Invalid user id" });
   }
   const user = await User.findById(id).lean();
-  if (!user)
+  if (!user) {
     return res.status(404).json({ success: false, message: "User not found" });
-  res.json({ success: true, data: user });
+  }
+  res.json({ success: true, data: sanitizeUser(user) });
+};
+
+const updateByAdmin = async (req, res) => {
+  const { id } = req.params;
+  const { name, email, phone, role, password, image, aadharNo } = req.body;
+
+  if (!isValidObjectId(id)) {
+    return res.status(400).json({ success: false, message: "Invalid user id" });
+  }
+
+  const user = await User.findById(id);
+  if (!user) {
+    return res.status(404).json({ success: false, message: "User not found" });
+  }
+
+  const updates = {};
+
+  if (name !== undefined) {
+    const trimmed = name?.trim();
+    if (!trimmed) {
+      return res.status(400).json({
+        success: false,
+        message: "Name cannot be empty",
+      });
+    }
+    updates.name = trimmed;
+  }
+
+  if (email !== undefined) {
+    const trimmed = email?.trim().toLowerCase();
+    if (!trimmed) {
+      return res.status(400).json({
+        success: false,
+        message: "Email cannot be empty",
+      });
+    }
+    if (trimmed !== user.email) {
+      const existing = await User.findOne({
+        email: trimmed,
+        _id: { $ne: user._id },
+      });
+      if (existing) {
+        return res.status(400).json({
+          success: false,
+          message: "Email already registered",
+        });
+      }
+    }
+    updates.email = trimmed;
+  }
+
+  if (phone !== undefined) {
+    const trimmed = phone?.trim();
+    if (!trimmed) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone cannot be empty",
+      });
+    }
+    if (!isValidPhone(trimmed)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid phone number. Use a valid 10-digit Indian mobile number",
+      });
+    }
+    const normalizedPhone = normalizePhone(trimmed);
+    if (!phonesEqual(normalizedPhone, user.phone)) {
+      const existing = await User.findOne({
+        phone: normalizedPhone,
+        _id: { $ne: user._id },
+      });
+      if (existing) {
+        return res.status(400).json({
+          success: false,
+          message: "Phone number already registered",
+        });
+      }
+    }
+    updates.phone = normalizedPhone;
+  }
+
+  if (role !== undefined) {
+    const trimmed = role?.trim();
+    if (!trimmed) {
+      return res.status(400).json({
+        success: false,
+        message: "Role cannot be empty",
+      });
+    }
+    updates.role = trimmed;
+  }
+
+  if (image !== undefined) {
+    updates.image = image?.trim() ?? "";
+  }
+
+  if (aadharNo !== undefined) {
+    const trimmed = aadharNo?.trim() ?? "";
+    if (trimmed && !isValidAadharNo(trimmed)) {
+      return res.status(400).json({
+        success: false,
+        message: "Aadhar number must be 12 digits",
+      });
+    }
+    updates.aadharNo = trimmed ? normalizeAadharNo(trimmed) : "";
+  }
+
+  if (password !== undefined && password !== "") {
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters",
+      });
+    }
+    updates.password = await hashPassword(password);
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "No valid fields provided to update",
+    });
+  }
+
+  try {
+    const updated = await User.findByIdAndUpdate(user._id, updates, {
+      new: true,
+      runValidators: true,
+    }).lean();
+
+    res.json({
+      success: true,
+      message: "User updated successfully",
+      data: sanitizeUser(updated),
+    });
+  } catch (err) {
+    if (err.code === 11000) {
+      const field = err.keyPattern?.email ? "Email" : "Phone number";
+      return res.status(400).json({
+        success: false,
+        message: `${field} already registered`,
+      });
+    }
+    throw err;
+  }
 };
 
 /**
@@ -141,4 +281,11 @@ const remove = async (req, res) => {
   res.json({ success: true, message: "User deleted" });
 };
 
-module.exports = { createByAdmin, getAll, getById, save, remove };
+module.exports = {
+  createByAdmin,
+  getAll,
+  getById,
+  updateByAdmin,
+  save,
+  remove,
+};
