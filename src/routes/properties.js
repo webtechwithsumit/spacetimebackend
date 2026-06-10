@@ -5,6 +5,7 @@ const authenticate = require("../middleware/authenticate");
 const {
   requirePropertyManager,
 } = require("../middleware/requirePropertyManager");
+const { propertyMediaFields } = require("../middleware/propertyUpload");
 
 /**
  * @openapi
@@ -82,6 +83,7 @@ router.post(
   "/",
   authenticate,
   requirePropertyManager,
+  propertyMediaFields,
   propertyController.create,
 );
 
@@ -107,7 +109,12 @@ router.post(
  *       404:
  *         description: Property not found
  */
-router.put("/:id", authenticate, propertyController.update);
+router.put(
+  "/:id",
+  authenticate,
+  propertyMediaFields,
+  propertyController.update,
+);
 
 /**
  * @openapi

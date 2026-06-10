@@ -1,16 +1,20 @@
 require("express-async-errors");
+const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const swaggerSpec = require("./config/swagger");
 const config = require("./config");
+const { initBaseMediaFolders, getUploadRoot } = require("./utils/mediaStorage");
 
 const authRoutes = require("./routes/auth");
 const healthRoutes = require("./routes/health");
 const profileRoutes = require("./routes/profile");
 const userRoutes = require("./routes/users");
 const propertyRoutes = require("./routes/properties");
+
+initBaseMediaFolders();
 
 const app = express();
 
@@ -52,6 +56,8 @@ app.use(
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "500kb" }));
 
+app.use("/uploads", express.static(getUploadRoot()));
+
 // Scalar API docs
 let scalarMiddleware = null;
 const serveReference = async (req, res, next) => {
@@ -86,6 +92,18 @@ app.use((req, res) => {
 
 // Error handler
 app.use((err, req, res, next) => {
+  if (err?.code === "LIMIT_FILE_SIZE") {
+    return res.status(400).json({
+      success: false,
+      message: "File size must be 10MB or less",
+    });
+  }
+  if (err?.message?.includes("Only image files")) {
+    return res.status(400).json({ success: false, message: err.message });
+  }
+  if (err?.message?.includes("media") || err?.message?.includes("Property") || err?.message?.includes("Entity")) {
+    return res.status(400).json({ success: false, message: err.message });
+  }
   console.error(err.stack);
   res.status(500).json({ success: false, message: "Internal server error" });
 });

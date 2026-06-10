@@ -1,18 +1,54 @@
 const mongoose = require("mongoose");
 
+const legalDocumentsSchema = new mongoose.Schema(
+  {
+    titleDeed: { type: [String], default: [] },
+    propertyTaxReceipts: { type: [String], default: [] },
+    occupancyCertificate: { type: [String], default: [] },
+    floorPlan: { type: [String], default: [] },
+    approvalsInPlace: { type: [String], default: [] },
+  },
+  { _id: false },
+);
+
 const propertySchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
     description: { type: String, trim: true, default: "" },
     images: { type: [String], default: [] },
+    legalDocuments: {
+      type: legalDocumentsSchema,
+      default: () => ({}),
+    },
+    flyers: { type: [String], default: [] },
     address: { type: String, trim: true, default: "" },
     city: { type: String, trim: true, default: "" },
     state: { type: String, trim: true, default: "" },
     pincode: { type: String, trim: true, default: "" },
+    plotNumber: { type: String, trim: true, default: "" },
+    microMarketLocality: { type: String, trim: true, default: "" },
+    buildingName: { type: String, trim: true, default: "" },
+    roadName: { type: String, trim: true, default: "" },
     category: { type: String, required: true, trim: true },
     buildingType: { type: String, trim: true, default: "" },
     area: { type: String, trim: true, default: "" },
+    plotArea: { type: String, trim: true, default: "" },
+    plotAreaUnit: { type: String, trim: true, default: "Sq. Yards" },
+    totalCarpetArea: { type: String, trim: true, default: "" },
+    superArea: { type: String, trim: true, default: "" },
+    totalFloorsInBuilding: { type: String, trim: true, default: "" },
+    floorsOffered: { type: String, trim: true, default: "" },
+    totalCarParks: { type: String, trim: true, default: "" },
+    carParkingIncluded: { type: String, trim: true, default: "" },
+    parkingTypes: { type: [String], default: [] },
+    constructionStatus: { type: String, trim: true, default: "" },
+    ageOfProperty: { type: String, trim: true, default: "" },
+    furnishingStatus: { type: String, trim: true, default: "" },
+    furnishingOther: { type: String, trim: true, default: "" },
+    totalPrice: { type: String, trim: true, default: "" },
     pricePerSqft: { type: String, trim: true, default: "" },
+    propertyTax: { type: String, trim: true, default: "" },
+    estimatedMonthlyMaintenance: { type: String, trim: true, default: "" },
     status: { type: String, trim: true, default: "" },
     sellerId: {
       type: mongoose.Schema.Types.ObjectId,

@@ -6,6 +6,10 @@ const {
 } = require("../utils/auth");
 const { normalizePhone, isValidPhone, phonesEqual } = require("../utils/phone");
 const { normalizeAadharNo, isValidAadharNo } = require("../utils/aadhar");
+const {
+  mergeKycDocuments,
+  resolveProfileImage,
+} = require("../utils/profileMedia");
 
 const getProfile = async (req, res) => {
   const user = await User.findById(req.user._id).lean();
@@ -22,9 +26,24 @@ const getProfile = async (req, res) => {
   });
 };
 
+function normalizeMediaList(items) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+}
+
 const updateProfile = async (req, res) => {
-  const { name, email, phone, password, currentPassword, image, aadharNo } =
-    req.body;
+  const {
+    name,
+    email,
+    phone,
+    password,
+    currentPassword,
+    image,
+    aadharNo,
+    kycDocuments,
+  } = req.body;
 
   const updates = {};
   const user = await User.findById(req.user._id).select("+password");
@@ -100,10 +119,6 @@ const updateProfile = async (req, res) => {
     updates.phone = normalizedPhone;
   }
 
-  if (image !== undefined) {
-    updates.image = image?.trim() ?? "";
-  }
-
   if (aadharNo !== undefined) {
     const trimmed = aadharNo?.trim() ?? "";
     if (trimmed && !isValidAadharNo(trimmed)) {
@@ -113,6 +128,37 @@ const updateProfile = async (req, res) => {
       });
     }
     updates.aadharNo = trimmed ? normalizeAadharNo(trimmed) : "";
+  }
+
+  const entityName = updates.name ?? user.name;
+  const hasNewMedia =
+    req.files &&
+    (req.files.image?.length || req.files.kycDocuments?.length);
+  const hasExistingMedia =
+    req.body.existingImage !== undefined ||
+    req.body.existingKycDocuments !== undefined;
+
+  if (hasNewMedia || hasExistingMedia) {
+    const imageUrl = resolveProfileImage(
+      req.files,
+      entityName,
+      req.body.existingImage ?? user.image,
+    );
+    if (imageUrl !== undefined) updates.image = imageUrl;
+
+    const kyc = mergeKycDocuments(
+      req.files,
+      entityName,
+      req.body.existingKycDocuments,
+    );
+    if (kyc !== undefined) updates.kycDocuments = kyc;
+  } else {
+    if (image !== undefined) {
+      updates.image = image?.trim() ?? "";
+    }
+    if (kycDocuments !== undefined) {
+      updates.kycDocuments = normalizeMediaList(kycDocuments);
+    }
   }
 
   if (password !== undefined) {

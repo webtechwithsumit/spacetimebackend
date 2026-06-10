@@ -1,10 +1,22 @@
 const Property = require("../models/Property");
 const { canModifyProperty } = require("../middleware/requirePropertyManager");
+const {
+  buildLegalDocuments,
+  hasLegalDocumentUploads,
+  mergePropertyMedia,
+  normalizeLegalDocuments,
+} = require("../utils/propertyMedia");
+const {
+  pickStringFields,
+  parseStringArrayField,
+  STRING_PROPERTY_FIELDS,
+  trimString,
+} = require("../utils/propertyFields");
 const { isValidObjectId } = require("../utils/validateId");
 
-function normalizeImages(images) {
-  if (!Array.isArray(images)) return [];
-  return images
+function normalizeMediaList(items) {
+  if (!Array.isArray(items)) return [];
+  return items
     .map((item) => (typeof item === "string" ? item.trim() : ""))
     .filter(Boolean);
 }
@@ -42,23 +54,8 @@ const getById = async (req, res) => {
 };
 
 const create = async (req, res) => {
-  const {
-    title,
-    description,
-    images,
-    address,
-    city,
-    state,
-    pincode,
-    category,
-    buildingType,
-    area,
-    pricePerSqft,
-    status,
-  } = req.body;
-
-  const trimmedTitle = title?.trim();
-  const trimmedCategory = category?.trim();
+  const trimmedTitle = trimString(req.body.title);
+  const trimmedCategory = trimString(req.body.category);
 
   if (!trimmedTitle) {
     return res.status(400).json({
@@ -74,19 +71,50 @@ const create = async (req, res) => {
     });
   }
 
+  const parkingTypes = parseStringArrayField(req.body.parkingTypes) ?? [];
+
   const property = await Property.create({
+    ...pickStringFields(req.body, [
+      "description",
+      "address",
+      "city",
+      "state",
+      "pincode",
+      "plotNumber",
+      "microMarketLocality",
+      "buildingName",
+      "roadName",
+      "buildingType",
+      "area",
+      "plotArea",
+      "plotAreaUnit",
+      "totalCarpetArea",
+      "superArea",
+      "totalFloorsInBuilding",
+      "floorsOffered",
+      "totalCarParks",
+      "carParkingIncluded",
+      "constructionStatus",
+      "ageOfProperty",
+      "furnishingStatus",
+      "furnishingOther",
+      "totalPrice",
+      "pricePerSqft",
+      "propertyTax",
+      "estimatedMonthlyMaintenance",
+      "status",
+    ]),
     title: trimmedTitle,
-    description: description?.trim() ?? "",
-    images: normalizeImages(images),
-    address: address?.trim() ?? "",
-    city: city?.trim() ?? "",
-    state: state?.trim() ?? "",
-    pincode: pincode?.trim() ?? "",
     category: trimmedCategory,
-    buildingType: buildingType?.trim() ?? "",
-    area: area?.trim() ?? "",
-    pricePerSqft: pricePerSqft?.trim() ?? "",
-    status: status?.trim() ?? "",
+    parkingTypes,
+    images: mergePropertyMedia(req.files, "images", trimmedTitle),
+    legalDocuments: buildLegalDocuments(
+      req.files,
+      trimmedTitle,
+      null,
+      req.body.approvalsInPlace,
+    ),
+    flyers: [],
     sellerId: req.user._id,
   });
 
@@ -123,24 +151,10 @@ const update = async (req, res) => {
     });
   }
 
-  const updates = {};
-  const {
-    title,
-    description,
-    images,
-    address,
-    city,
-    state,
-    pincode,
-    category,
-    buildingType,
-    area,
-    pricePerSqft,
-    status,
-  } = req.body;
+  const updates = pickStringFields(req.body, STRING_PROPERTY_FIELDS);
 
-  if (title !== undefined) {
-    const trimmed = title?.trim();
+  if (req.body.title !== undefined) {
+    const trimmed = trimString(req.body.title);
     if (!trimmed) {
       return res.status(400).json({
         success: false,
@@ -150,21 +164,8 @@ const update = async (req, res) => {
     updates.title = trimmed;
   }
 
-  if (description !== undefined)
-    updates.description = description?.trim() ?? "";
-  if (images !== undefined) updates.images = normalizeImages(images);
-  if (address !== undefined) updates.address = address?.trim() ?? "";
-  if (city !== undefined) updates.city = city?.trim() ?? "";
-  if (state !== undefined) updates.state = state?.trim() ?? "";
-  if (pincode !== undefined) updates.pincode = pincode?.trim() ?? "";
-  if (buildingType !== undefined)
-    updates.buildingType = buildingType?.trim() ?? "";
-  if (area !== undefined) updates.area = area?.trim() ?? "";
-  if (pricePerSqft !== undefined)
-    updates.pricePerSqft = pricePerSqft?.trim() ?? "";
-
-  if (category !== undefined) {
-    const trimmed = category?.trim();
+  if (req.body.category !== undefined) {
+    const trimmed = trimString(req.body.category);
     if (!trimmed) {
       return res.status(400).json({
         success: false,
@@ -174,7 +175,49 @@ const update = async (req, res) => {
     updates.category = trimmed;
   }
 
-  if (status !== undefined) updates.status = status?.trim() ?? "";
+  if (req.body.parkingTypes !== undefined) {
+    updates.parkingTypes = parseStringArrayField(req.body.parkingTypes) ?? [];
+  }
+
+  const mediaTitle = updates.title ?? property.title;
+  const hasNewMedia =
+    req.files &&
+    (req.files.images?.length || hasLegalDocumentUploads(req.files));
+  const hasExistingMedia =
+    req.body.existingImages !== undefined ||
+    req.body.existingLegalDocuments !== undefined;
+  const hasLegalMeta =
+    req.body.approvalsInPlace !== undefined ||
+    req.body.existingLegalDocuments !== undefined;
+
+  if (hasNewMedia || hasExistingMedia || hasLegalMeta) {
+    if (hasNewMedia || req.body.existingImages !== undefined) {
+      updates.images = mergePropertyMedia(
+        req.files,
+        "images",
+        mediaTitle,
+        req.body.existingImages,
+      );
+    }
+    if (hasNewMedia || hasExistingMedia || hasLegalMeta) {
+      updates.legalDocuments = buildLegalDocuments(
+        req.files,
+        mediaTitle,
+        req.body.existingLegalDocuments ?? property.legalDocuments,
+        req.body.approvalsInPlace,
+      );
+    }
+  } else {
+    if (req.body.images !== undefined) {
+      updates.images = normalizeMediaList(req.body.images);
+    }
+    if (req.body.legalDocuments !== undefined) {
+      updates.legalDocuments = normalizeLegalDocuments(req.body.legalDocuments);
+    }
+    if (req.body.flyers !== undefined) {
+      updates.flyers = normalizeMediaList(req.body.flyers);
+    }
+  }
 
   if (Object.keys(updates).length === 0) {
     return res.status(400).json({

@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const profileController = require("../controllers/profileController");
 const authenticate = require("../middleware/authenticate");
+const { profileMediaFields } = require("../middleware/profileUpload");
 
 /**
  * @openapi
@@ -48,6 +49,6 @@ router.get("/", authenticate, profileController.getProfile);
  *       401:
  *         description: Unauthorized
  */
-router.put("/", authenticate, profileController.updateProfile);
+router.put("/", authenticate, profileMediaFields, profileController.updateProfile);
 
 module.exports = router;

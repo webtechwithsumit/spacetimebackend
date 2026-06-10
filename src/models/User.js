@@ -32,6 +32,7 @@ const userSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    kycDocuments: { type: [String], default: [] },
     password: {
       type: String,
       required: true,
