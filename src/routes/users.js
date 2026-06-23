@@ -23,6 +23,23 @@ const requireSuperAdmin = require("../middleware/requireSuperAdmin");
  */
 router.get("/", authenticate, requireSuperAdmin, userController.getAll);
 
+/**
+ * @openapi
+ * /api/users/brokers:
+ *   get:
+ *     summary: Get all brokers (Admin only)
+ *     description: Returns broker list for assigning auction advisors on properties.
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of brokers
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin access required
+ */
 router.get("/brokers", authenticate, requireAdmin, userController.getBrokers);
 
 /**

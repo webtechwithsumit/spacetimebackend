@@ -81,5 +81,6 @@ module.exports = {
   buildLiveAuctionsFilter,
   canViewProperty,
   canModifyProperty,
+  isPropertyOwner,
   isAdminRole,
 };

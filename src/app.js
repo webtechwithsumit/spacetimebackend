@@ -13,6 +13,7 @@ const healthRoutes = require("./routes/health");
 const profileRoutes = require("./routes/profile");
 const userRoutes = require("./routes/users");
 const propertyRoutes = require("./routes/properties");
+const bidRoutes = require("./routes/bids");
 
 initBaseMediaFolders();
 
@@ -84,6 +85,7 @@ app.use("/api/health", healthRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/properties", propertyRoutes);
+app.use("/api/bids", bidRoutes);
 
 // 404
 app.use((req, res) => {

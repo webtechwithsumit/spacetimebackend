@@ -19,10 +19,12 @@ const {
   trimString,
 } = require("../utils/propertyFields");
 const { isValidObjectId } = require("../utils/validateId");
+const { buildPaginationMeta, parsePagination } = require("../utils/pagination");
 const {
-  buildPaginationMeta,
-  parsePagination,
-} = require("../utils/pagination");
+  attachCurrentBidAmounts,
+  attachLeadingBidderInfo,
+  getTopBidsByPropertyIds,
+} = require("../utils/bidHelpers");
 
 function normalizeMediaList(items) {
   if (!Array.isArray(items)) return [];
@@ -71,9 +73,13 @@ const getAll = async (req, res) => {
 const getLiveAuctions = async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query);
   const filter = buildLiveAuctionsFilter();
+  const sort =
+    req.query.sort === "latest"
+      ? { createdAt: -1 }
+      : { auctionEndDateTime: 1, createdAt: -1 };
 
   const query = Property.find(filter)
-    .sort({ auctionEndDateTime: 1, createdAt: -1 })
+    .sort(sort)
     .skip(skip)
     .limit(limit)
     .select(
@@ -86,11 +92,52 @@ const getLiveAuctions = async (req, res) => {
     Property.countDocuments(filter),
   ]);
 
+  const topBidsByPropertyId = await getTopBidsByPropertyIds(
+    properties.map((property) => property._id),
+  );
+
   res.json({
     success: true,
-    data: properties,
+    data: attachCurrentBidAmounts(properties, topBidsByPropertyId),
     pagination: buildPaginationMeta(page, limit, total),
   });
+};
+
+const getLiveAuctionById = async (req, res) => {
+  const { id } = req.params;
+  if (!isValidObjectId(id)) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Invalid property id" });
+  }
+
+  const property = await Property.findOne({
+    _id: id,
+    ...buildLiveAuctionsFilter(),
+  })
+    .select(
+      "title description images category city state address microMarketLocality buildingName startingBidAmount bidIncrement auctionStartDateTime auctionEndDateTime ribbonText amenities status auctionStatus totalPrice pricePerSqft area totalCarpetArea buildingType occupancyStatus canBrokerBid sellerId",
+    )
+    .lean();
+
+  if (!property) {
+    return res.status(404).json({
+      success: false,
+      message: "Live auction property not found",
+    });
+  }
+
+  const topBidsByPropertyId = await getTopBidsByPropertyIds([property._id]);
+  const [withCurrentBid] = attachCurrentBidAmounts(
+    [property],
+    topBidsByPropertyId,
+  );
+  const [enrichedProperty] = await attachLeadingBidderInfo(
+    [withCurrentBid],
+    req.user?._id,
+  );
+
+  res.json({ success: true, data: enrichedProperty });
 };
 
 const getById = async (req, res) => {
@@ -349,6 +396,7 @@ const remove = async (req, res) => {
 module.exports = {
   getAll,
   getLiveAuctions,
+  getLiveAuctionById,
   getById,
   create,
   update,
