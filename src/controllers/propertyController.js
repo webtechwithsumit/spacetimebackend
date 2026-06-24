@@ -51,6 +51,11 @@ const getAll = async (req, res) => {
     filter.title = { $regex: titleQuery, $options: "i" };
   }
 
+  const auctionStatus = trimString(req.query.auctionStatus);
+  if (auctionStatus) {
+    filter.auctionStatus = auctionStatus;
+  }
+
   const query = Property.find(filter)
     .sort({ createdAt: -1 })
     .skip(skip)

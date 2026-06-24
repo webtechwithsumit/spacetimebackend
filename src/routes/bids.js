@@ -22,4 +22,18 @@ const authenticate = require("../middleware/authenticate");
  */
 router.get("/my-bids", authenticate, bidController.getMyBids);
 
+/**
+ * @openapi
+ * /api/bids/live-monitor:
+ *   get:
+ *     summary: Live auction bid monitor with bidder breakdown
+ *     tags: [Bids]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Live properties with bid details
+ */
+router.get("/live-monitor", authenticate, bidController.getLiveBidMonitor);
+
 module.exports = router;

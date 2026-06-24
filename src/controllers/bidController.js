@@ -1,8 +1,12 @@
 const Property = require("../models/Property");
 const Bid = require("../models/Bid");
+const User = require("../models/User");
 const mongoose = require("mongoose");
 const { isValidObjectId } = require("../utils/validateId");
-const { buildLiveAuctionsFilter } = require("../middleware/requirePropertyManager");
+const {
+  buildLiveAuctionsFilter,
+  isAdminRole,
+} = require("../middleware/requirePropertyManager");
 const { buildPaginationMeta, parsePagination } = require("../utils/pagination");
 const {
   parseIndianNumber,
@@ -180,7 +184,148 @@ const getMyBids = async (req, res) => {
   });
 };
 
+const liveMonitorPropertyFields =
+  "title city microMarketLocality startingBidAmount auctionEndDateTime auctionStartDateTime images category";
+
+const getLiveBidMonitor = async (req, res) => {
+  const role = req.user?.role;
+  const isAdmin = isAdminRole(role);
+  const isManager = role === "Seller" || role === "Broker";
+
+  if (!isAdmin && !isManager) {
+    return res.status(403).json({
+      success: false,
+      message: "Admin, Seller, or Broker access required",
+    });
+  }
+
+  const propertyFilter = {
+    ...activePropertyFilter,
+    ...buildLiveAuctionsFilter(),
+  };
+
+  if (!isAdmin) {
+    propertyFilter.sellerId = req.user._id;
+  }
+
+  const properties = await Property.find(propertyFilter)
+    .select(liveMonitorPropertyFields)
+    .sort({ auctionEndDateTime: 1, createdAt: -1 })
+    .lean();
+
+  if (!properties.length) {
+    return res.json({ success: true, data: [] });
+  }
+
+  const propertyIds = properties.map((property) => property._id);
+  const topBidsByPropertyId = await getTopBidsByPropertyIds(
+    propertyIds.map(String),
+  );
+
+  const allBidRecords = await Bid.find({ propertyId: { $in: propertyIds } })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const userIds = [...new Set(allBidRecords.map((bid) => String(bid.userId)))];
+  const users = userIds.length
+    ? await User.find({ _id: { $in: userIds } })
+        .select("name email phone role")
+        .lean()
+    : [];
+  const userMap = new Map(users.map((user) => [String(user._id), user]));
+
+  const bidsByProperty = new Map();
+  const uniqueBiddersByProperty = new Map();
+
+  for (const bid of allBidRecords) {
+    const propertyId = String(bid.propertyId);
+    const userId = String(bid.userId);
+    const user = userMap.get(userId);
+
+    if (!bidsByProperty.has(propertyId)) {
+      bidsByProperty.set(propertyId, []);
+      uniqueBiddersByProperty.set(propertyId, new Set());
+    }
+
+    uniqueBiddersByProperty.get(propertyId).add(userId);
+    bidsByProperty.get(propertyId).push({
+      bidId: String(bid._id),
+      userId,
+      name: user?.name ?? "Unknown",
+      email: user?.email ?? "—",
+      phone: user?.phone ?? "—",
+      role: user?.role ?? "—",
+      amount: bid.amount,
+      createdAt: bid.createdAt,
+    });
+  }
+
+  const leadingBidIdByProperty = new Map();
+  for (const propertyId of propertyIds.map(String)) {
+    const propertyBids = bidsByProperty.get(propertyId) ?? [];
+    if (!propertyBids.length) continue;
+    const leading = [...propertyBids].sort((a, b) => {
+      if (b.amount !== a.amount) return b.amount - a.amount;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    })[0];
+    leadingBidIdByProperty.set(propertyId, leading.bidId);
+  }
+
+  const data = properties.map((property) => {
+    const propertyId = String(property._id);
+    const bids = (bidsByProperty.get(propertyId) ?? []).map((bid) => ({
+      ...bid,
+      isLeading: leadingBidIdByProperty.get(propertyId) === bid.bidId,
+    }));
+    const leadingBid = bids.find((bid) => bid.isLeading) ?? null;
+    const currentBidAmount =
+      topBidsByPropertyId[propertyId] ??
+      parseIndianNumber(property.startingBidAmount);
+
+    return {
+      propertyId,
+      title: property.title,
+      city: property.city ?? "",
+      microMarketLocality: property.microMarketLocality ?? "",
+      category: property.category ?? "",
+      image: property.images?.[0] ?? null,
+      startingBidAmount: parseIndianNumber(property.startingBidAmount),
+      currentBidAmount,
+      auctionStartDateTime: property.auctionStartDateTime ?? "",
+      auctionEndDateTime: property.auctionEndDateTime ?? "",
+      totalBids: bids.length,
+      uniqueBidders: uniqueBiddersByProperty.get(propertyId)?.size ?? 0,
+      leadingBidder: leadingBid
+        ? {
+            userId: leadingBid.userId,
+            name: leadingBid.name,
+            email: leadingBid.email,
+            amount: leadingBid.amount,
+          }
+        : null,
+      bids,
+    };
+  });
+
+  data.sort((a, b) => {
+    if (b.totalBids !== a.totalBids) return b.totalBids - a.totalBids;
+    if (b.uniqueBidders !== a.uniqueBidders) {
+      return b.uniqueBidders - a.uniqueBidders;
+    }
+    if (b.currentBidAmount !== a.currentBidAmount) {
+      return b.currentBidAmount - a.currentBidAmount;
+    }
+    return (
+      new Date(a.auctionEndDateTime).getTime() -
+      new Date(b.auctionEndDateTime).getTime()
+    );
+  });
+
+  res.json({ success: true, data });
+};
+
 module.exports = {
   placeBid,
   getMyBids,
+  getLiveBidMonitor,
 };

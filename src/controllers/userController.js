@@ -3,10 +3,7 @@ const { hashPassword, sanitizeUser } = require("../utils/auth");
 const { normalizePhone, isValidPhone, phonesEqual } = require("../utils/phone");
 const { normalizeAadharNo, isValidAadharNo } = require("../utils/aadhar");
 const { isValidObjectId } = require("../utils/validateId");
-const {
-  buildPaginationMeta,
-  parsePagination,
-} = require("../utils/pagination");
+const { buildPaginationMeta, parsePagination } = require("../utils/pagination");
 
 const createByAdmin = async (req, res) => {
   const name = req.body.name?.trim();
@@ -82,10 +79,22 @@ const createByAdmin = async (req, res) => {
 
 const getAll = async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query);
+  const filter = {};
+
+  const role = req.query.role?.trim();
+  if (role) {
+    filter.role = role;
+  }
+
+  const search = req.query.search?.trim();
+  if (search) {
+    const regex = { $regex: search, $options: "i" };
+    filter.$or = [{ name: regex }, { email: regex }, { phone: regex }];
+  }
 
   const [users, total] = await Promise.all([
-    User.find().sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-    User.countDocuments(),
+    User.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    User.countDocuments(filter),
   ]);
 
   res.json({
