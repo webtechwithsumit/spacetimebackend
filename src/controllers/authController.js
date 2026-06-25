@@ -6,6 +6,7 @@ const {
   sanitizeUser,
 } = require("../utils/auth");
 const { normalizePhone, isValidPhone } = require("../utils/phone");
+const { recordAnalyticsEvent } = require("../utils/recordAnalyticsEvent");
 
 const register = async (req, res) => {
   const name = req.body.name?.trim();
@@ -79,6 +80,12 @@ const register = async (req, res) => {
     throw err;
   }
 
+  await recordAnalyticsEvent({
+    event: "signup_completed",
+    properties: { role },
+    userAgent: req.headers["user-agent"],
+  });
+
   res.status(201).json({
     success: true,
     message: "Account created successfully",
@@ -114,6 +121,13 @@ const login = async (req, res) => {
 
   const safeUser = sanitizeUser(user.toObject());
   const token = signToken(user._id.toString());
+
+  await recordAnalyticsEvent({
+    event: "login",
+    properties: { role: safeUser.role },
+    userId: user._id,
+    userAgent: req.headers["user-agent"],
+  });
 
   res.json({
     success: true,

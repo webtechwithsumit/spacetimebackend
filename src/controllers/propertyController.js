@@ -19,6 +19,7 @@ const {
 } = require("../utils/propertyFields");
 const { isValidObjectId } = require("../utils/validateId");
 const { buildPaginationMeta, parsePagination } = require("../utils/pagination");
+const { recordAnalyticsEvent } = require("../utils/recordAnalyticsEvent");
 const {
   buildAuctionStageFilter,
   buildLiveStageFilter,
@@ -255,6 +256,17 @@ const create = async (req, res) => {
   const created = await Property.findById(property._id)
     .populate("sellerId", "name email role")
     .lean();
+
+  await recordAnalyticsEvent({
+    event: "property_created",
+    properties: {
+      propertyId: String(property._id),
+      category: trimmedCategory,
+      city: trimString(req.body.city) || "",
+    },
+    userId: req.user._id,
+    userAgent: req.headers["user-agent"],
+  });
 
   res.status(201).json({
     success: true,

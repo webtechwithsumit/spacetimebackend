@@ -23,6 +23,7 @@ const {
   canUserPlaceBid,
   getBidRestrictionMessage,
 } = require("../utils/bidHelpers");
+const { recordAnalyticsEvent } = require("../utils/recordAnalyticsEvent");
 
 const activePropertyFilter = { isDeleted: { $ne: true } };
 
@@ -96,6 +97,18 @@ const placeBid = async (req, res) => {
     propertyId: property._id,
     userId: req.user._id,
     amount: bidAmount,
+  });
+
+  await recordAnalyticsEvent({
+    event: "bid_placed",
+    properties: {
+      propertyId: String(property._id),
+      amount: bidAmount,
+      city: property.city || "",
+      category: property.category || "",
+    },
+    userId: req.user._id,
+    userAgent: req.headers["user-agent"],
   });
 
   res.status(201).json({
