@@ -30,6 +30,13 @@ router.get("/my-bids", authenticate, bidController.getMyBids);
  *     tags: [Bids]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [live, ended]
+ *         description: Filter by live or ended auctions (default live)
  *     responses:
  *       200:
  *         description: Live properties with bid details

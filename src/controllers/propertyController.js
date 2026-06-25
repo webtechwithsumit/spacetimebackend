@@ -1,6 +1,5 @@
 const Property = require("../models/Property");
 const {
-  buildLiveAuctionsFilter,
   buildPropertyListFilter,
   canAccessPropertyList,
   canModifyProperty,
@@ -20,6 +19,11 @@ const {
 } = require("../utils/propertyFields");
 const { isValidObjectId } = require("../utils/validateId");
 const { buildPaginationMeta, parsePagination } = require("../utils/pagination");
+const {
+  buildAuctionStageFilter,
+  buildLiveStageFilter,
+  isPropertyLiveForMonitor,
+} = require("../utils/auctionStageHelpers");
 const {
   attachCurrentBidAmounts,
   attachLeadingBidderInfo,
@@ -51,9 +55,17 @@ const getAll = async (req, res) => {
     filter.title = { $regex: titleQuery, $options: "i" };
   }
 
-  const auctionStatus = trimString(req.query.auctionStatus);
-  if (auctionStatus) {
-    filter.auctionStatus = auctionStatus;
+  const auctionStage = trimString(req.query.auctionStage);
+  const statusStage = trimString(req.query.status);
+  const stageFilter = buildAuctionStageFilter(auctionStage || statusStage);
+
+  if (stageFilter) {
+    Object.assign(filter, stageFilter);
+  } else {
+    const auctionStatus = trimString(req.query.auctionStatus);
+    if (auctionStatus) {
+      filter.auctionStatus = auctionStatus;
+    }
   }
 
   const query = Property.find(filter)
@@ -77,7 +89,7 @@ const getAll = async (req, res) => {
 
 const getLiveAuctions = async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query);
-  const filter = buildLiveAuctionsFilter();
+  const filter = buildLiveStageFilter();
   const sort =
     req.query.sort === "latest"
       ? { createdAt: -1 }
@@ -97,13 +109,14 @@ const getLiveAuctions = async (req, res) => {
     Property.countDocuments(filter),
   ]);
 
+  const liveProperties = properties.filter(isPropertyLiveForMonitor);
   const topBidsByPropertyId = await getTopBidsByPropertyIds(
-    properties.map((property) => property._id),
+    liveProperties.map((property) => property._id),
   );
 
   res.json({
     success: true,
-    data: attachCurrentBidAmounts(properties, topBidsByPropertyId),
+    data: attachCurrentBidAmounts(liveProperties, topBidsByPropertyId),
     pagination: buildPaginationMeta(page, limit, total),
   });
 };
@@ -118,14 +131,14 @@ const getLiveAuctionById = async (req, res) => {
 
   const property = await Property.findOne({
     _id: id,
-    ...buildLiveAuctionsFilter(),
+    ...buildLiveStageFilter(),
   })
     .select(
       "title description images category city state address microMarketLocality buildingName startingBidAmount bidIncrement auctionStartDateTime auctionEndDateTime ribbonText amenities status auctionStatus totalPrice pricePerSqft area totalCarpetArea buildingType occupancyStatus canBrokerBid sellerId",
     )
     .lean();
 
-  if (!property) {
+  if (!property || !isPropertyLiveForMonitor(property)) {
     return res.status(404).json({
       success: false,
       message: "Live auction property not found",

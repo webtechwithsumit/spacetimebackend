@@ -7,6 +7,11 @@ const {
   buildLiveAuctionsFilter,
   isAdminRole,
 } = require("../middleware/requirePropertyManager");
+const {
+  buildEndedStageFilter,
+  buildLiveStageFilter,
+  filterPropertiesForMonitorStage,
+} = require("../utils/auctionStageHelpers");
 const { buildPaginationMeta, parsePagination } = require("../utils/pagination");
 const {
   parseIndianNumber,
@@ -185,37 +190,40 @@ const getMyBids = async (req, res) => {
 };
 
 const liveMonitorPropertyFields =
-  "title city microMarketLocality startingBidAmount auctionEndDateTime auctionStartDateTime images category";
+  "title city microMarketLocality startingBidAmount auctionEndDateTime auctionStartDateTime auctionStatus images category";
 
-const getLiveBidMonitor = async (req, res) => {
-  const role = req.user?.role;
-  const isAdmin = isAdminRole(role);
-  const isManager = role === "Seller" || role === "Broker";
-
-  if (!isAdmin && !isManager) {
-    return res.status(403).json({
-      success: false,
-      message: "Admin, Seller, or Broker access required",
+function sortBidMonitorItems(data, status) {
+  if (status === "ended") {
+    data.sort((a, b) => {
+      const endDiff =
+        new Date(b.auctionEndDateTime).getTime() -
+        new Date(a.auctionEndDateTime).getTime();
+      if (endDiff !== 0) return endDiff;
+      if (b.totalBids !== a.totalBids) return b.totalBids - a.totalBids;
+      return b.currentBidAmount - a.currentBidAmount;
     });
+    return data;
   }
 
-  const propertyFilter = {
-    ...activePropertyFilter,
-    ...buildLiveAuctionsFilter(),
-  };
+  data.sort((a, b) => {
+    if (b.totalBids !== a.totalBids) return b.totalBids - a.totalBids;
+    if (b.uniqueBidders !== a.uniqueBidders) {
+      return b.uniqueBidders - a.uniqueBidders;
+    }
+    if (b.currentBidAmount !== a.currentBidAmount) {
+      return b.currentBidAmount - a.currentBidAmount;
+    }
+    return (
+      new Date(a.auctionEndDateTime).getTime() -
+      new Date(b.auctionEndDateTime).getTime()
+    );
+  });
 
-  if (!isAdmin) {
-    propertyFilter.sellerId = req.user._id;
-  }
+  return data;
+}
 
-  const properties = await Property.find(propertyFilter)
-    .select(liveMonitorPropertyFields)
-    .sort({ auctionEndDateTime: 1, createdAt: -1 })
-    .lean();
-
-  if (!properties.length) {
-    return res.json({ success: true, data: [] });
-  }
+async function buildBidMonitorItems(properties) {
+  if (!properties.length) return [];
 
   const propertyIds = properties.map((property) => property._id);
   const topBidsByPropertyId = await getTopBidsByPropertyIds(
@@ -271,7 +279,7 @@ const getLiveBidMonitor = async (req, res) => {
     leadingBidIdByProperty.set(propertyId, leading.bidId);
   }
 
-  const data = properties.map((property) => {
+  return properties.map((property) => {
     const propertyId = String(property._id);
     const bids = (bidsByProperty.get(propertyId) ?? []).map((bid) => ({
       ...bid,
@@ -306,20 +314,46 @@ const getLiveBidMonitor = async (req, res) => {
       bids,
     };
   });
+}
 
-  data.sort((a, b) => {
-    if (b.totalBids !== a.totalBids) return b.totalBids - a.totalBids;
-    if (b.uniqueBidders !== a.uniqueBidders) {
-      return b.uniqueBidders - a.uniqueBidders;
-    }
-    if (b.currentBidAmount !== a.currentBidAmount) {
-      return b.currentBidAmount - a.currentBidAmount;
-    }
-    return (
-      new Date(a.auctionEndDateTime).getTime() -
-      new Date(b.auctionEndDateTime).getTime()
-    );
-  });
+const getLiveBidMonitor = async (req, res) => {
+  const role = req.user?.role;
+  const isAdmin = isAdminRole(role);
+  const isManager = role === "Seller" || role === "Broker";
+
+  if (!isAdmin && !isManager) {
+    return res.status(403).json({
+      success: false,
+      message: "Admin, Seller, or Broker access required",
+    });
+  }
+
+  const status = req.query.status === "ended" ? "ended" : "live";
+  const propertyFilter = {
+    ...activePropertyFilter,
+    ...(status === "ended" ? buildEndedStageFilter() : buildLiveStageFilter()),
+  };
+
+  if (!isAdmin) {
+    propertyFilter.sellerId = req.user._id;
+  }
+
+  const properties = filterPropertiesForMonitorStage(
+    await Property.find(propertyFilter)
+      .select(liveMonitorPropertyFields)
+      .sort(
+        status === "ended"
+          ? { auctionEndDateTime: -1, createdAt: -1 }
+          : { auctionEndDateTime: 1, createdAt: -1 },
+      )
+      .lean(),
+    status,
+  );
+
+  const data = sortBidMonitorItems(
+    await buildBidMonitorItems(properties),
+    status,
+  );
 
   res.json({ success: true, data });
 };

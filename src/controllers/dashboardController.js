@@ -8,6 +8,11 @@ const {
   isAdminRole,
 } = require("../middleware/requirePropertyManager");
 const {
+  buildLiveStageFilter,
+  buildEndedStageFilter,
+  buildUpcomingStageFilter,
+} = require("../utils/auctionStageHelpers");
+const {
   getTopBidsByPropertyIds,
   attachLeadingBidderInfo,
   isAuctionEnded,
@@ -123,12 +128,12 @@ async function getBidSummary(userId) {
 async function getPropertySummary(user) {
   const filter = buildPropertyListFilter(user);
 
-  const [total, live, scheduled, ended, draft, recentProperties] =
+  const [total, live, upcoming, ended, draft, recentProperties] =
     await Promise.all([
       Property.countDocuments(filter),
-      Property.countDocuments({ ...filter, auctionStatus: "Live" }),
-      Property.countDocuments({ ...filter, auctionStatus: "Scheduled" }),
-      Property.countDocuments({ ...filter, auctionStatus: "Ended" }),
+      Property.countDocuments({ ...filter, ...buildLiveStageFilter() }),
+      Property.countDocuments({ ...filter, ...buildUpcomingStageFilter() }),
+      Property.countDocuments({ ...filter, ...buildEndedStageFilter() }),
       Property.countDocuments({ ...filter, auctionStatus: "Draft" }),
       Property.find(filter)
         .sort({ updatedAt: -1 })
@@ -142,7 +147,7 @@ async function getPropertySummary(user) {
   return {
     totalProperties: total,
     liveListings: live,
-    scheduledListings: scheduled,
+    upcomingListings: upcoming,
     endedListings: ended,
     draftListings: draft,
     recentProperties: recentProperties.map((property) => ({
