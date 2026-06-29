@@ -1,5 +1,6 @@
-const AnalyticsEvent = require("../models/AnalyticsEvent");
-const { isValidObjectId } = require("./validateId");
+const { isValidObjectId } = require("../../../utils/validateId");
+const { getAnalyticsEventModel, isAnalyticsDBConnected } = require("../db");
+const { isAnalyticsLicensed } = require("../services/licenseService");
 
 async function recordAnalyticsEvent({
   event,
@@ -10,8 +11,13 @@ async function recordAnalyticsEvent({
   path,
   userAgent,
   clientMetadata = {},
+  organizationId = "default",
 }) {
   if (!event) return;
+  if (!isAnalyticsDBConnected()) return;
+
+  const licensed = await isAnalyticsLicensed();
+  if (!licensed) return;
 
   const resolvedPropertyId =
     propertyId ||
@@ -20,6 +26,7 @@ async function recordAnalyticsEvent({
       : undefined);
 
   try {
+    const AnalyticsEvent = getAnalyticsEventModel();
     await AnalyticsEvent.create({
       event,
       properties,
@@ -28,6 +35,7 @@ async function recordAnalyticsEvent({
       sessionId,
       path,
       userAgent,
+      organizationId,
       ipAddress: clientMetadata.ipAddress,
       browser: clientMetadata.browser,
       os: clientMetadata.os,

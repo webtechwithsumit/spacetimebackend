@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const { isValidObjectId } = require("./validateId");
+const { isValidObjectId } = require("../../../utils/validateId");
 
 function resolvePropertyId(value) {
   if (!value || !isValidObjectId(String(value))) return undefined;

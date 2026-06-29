@@ -15,7 +15,6 @@ const userRoutes = require("./routes/users");
 const propertyRoutes = require("./routes/properties");
 const bidRoutes = require("./routes/bids");
 const dashboardRoutes = require("./routes/dashboard");
-const analyticsRoutes = require("./routes/analytics");
 
 initBaseMediaFolders();
 
@@ -90,29 +89,9 @@ app.use("/api/users", userRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/bids", bidRoutes);
 app.use("/api/dashboard", dashboardRoutes);
-app.use("/api/analytics", analyticsRoutes);
 
-// 404
-app.use((req, res) => {
-  res.status(404).json({ success: false, message: "Route not found" });
-});
+// Analytics plugin is mounted from server.js when ANALYTICS_ENABLED=true
 
-// Error handler
-app.use((err, req, res, next) => {
-  if (err?.code === "LIMIT_FILE_SIZE") {
-    return res.status(400).json({
-      success: false,
-      message: "File size must be 10MB or less",
-    });
-  }
-  if (err?.message?.includes("Only image files")) {
-    return res.status(400).json({ success: false, message: err.message });
-  }
-  if (err?.message?.includes("media") || err?.message?.includes("Property") || err?.message?.includes("Entity")) {
-    return res.status(400).json({ success: false, message: err.message });
-  }
-  console.error(err.stack);
-  res.status(500).json({ success: false, message: "Internal server error" });
-});
+// 404 + error handlers are attached in server.js after plugin routes mount
 
 module.exports = app;

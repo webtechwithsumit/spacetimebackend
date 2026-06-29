@@ -19,7 +19,7 @@ const {
 } = require("../utils/propertyFields");
 const { isValidObjectId } = require("../utils/validateId");
 const { buildPaginationMeta, parsePagination } = require("../utils/pagination");
-const { recordAnalyticsEvent } = require("../utils/recordAnalyticsEvent");
+const analyticsBridge = require("../services/analyticsBridge");
 const {
   buildAuctionStageFilter,
   buildLiveStageFilter,
@@ -279,15 +279,15 @@ const create = async (req, res) => {
     .populate("sellerId", "name email role")
     .lean();
 
-  await recordAnalyticsEvent({
+  await analyticsBridge.recordFromRequest(req, {
     event: "property_created",
     properties: {
       propertyId: String(property._id),
       category: trimmedCategory,
       city: trimString(req.body.city) || "",
     },
+    propertyId: property._id,
     userId: req.user._id,
-    userAgent: req.headers["user-agent"],
   });
 
   res.status(201).json({

@@ -10,6 +10,9 @@ const baseUrl = process.env.BASE_URL || '';
 module.exports = {
   port: process.env.PORT || 3002,
   mongoUri: process.env.MONGODB_URI,
+  analyticsEnabled: String(process.env.ANALYTICS_ENABLED ?? "false").toLowerCase() === "true",
+  analyticsMongoUri: process.env.ANALYTICS_MONGODB_URI || "",
+  analyticsLicenseKey: process.env.ANALYTICS_LICENSE_KEY || "",
   allowedOrigins,
   baseUrl,
   jwtSecret: process.env.JWT_SECRET || 'spacetime-dev-secret-change-in-production',

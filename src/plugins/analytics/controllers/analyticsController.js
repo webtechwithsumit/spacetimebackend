@@ -1,19 +1,18 @@
-const AnalyticsEvent = require("../models/AnalyticsEvent");
 const mongoose = require("mongoose");
-const Bid = require("../models/Bid");
-const Property = require("../models/Property");
-const User = require("../models/User");
+const Bid = require("../../../models/Bid");
+const Property = require("../../../models/Property");
+const User = require("../../../models/User");
 const {
   buildLiveAuctionsFilter,
-} = require("../middleware/requirePropertyManager");
+} = require("../../../middleware/requirePropertyManager");
 const {
   buildLiveStageFilter,
   buildEndedStageFilter,
   buildUpcomingStageFilter,
-} = require("../utils/auctionStageHelpers");
+} = require("../../../utils/auctionStageHelpers");
 const { recordAnalyticsEvent } = require("../utils/recordAnalyticsEvent");
-const { buildPaginationMeta, parsePagination } = require("../utils/pagination");
-const { isValidObjectId } = require("../utils/validateId");
+const { buildPaginationMeta, parsePagination } = require("../../../utils/pagination");
+const { isValidObjectId } = require("../../../utils/validateId");
 const {
   resolveEventPropertyId,
   buildPropertyAnalyticsFilter,
@@ -22,12 +21,76 @@ const {
 const {
   isAdminRole,
   isPropertyOwner,
-} = require("../middleware/requirePropertyManager");
+} = require("../../../middleware/requirePropertyManager");
 const {
   buildClientMetadata,
   mapClientFields,
   formatLocation,
 } = require("../utils/clientMetadata");
+const { getAnalyticsEventModel } = require("../db");
+const {
+  getAnalyticsStatus,
+  activateLicense,
+  deactivateLicense,
+  generateLicenseKey,
+} = require("../services/licenseService");
+const {
+  getUserAnalyticsAccess,
+  hasPropertyAnalyticsAccess,
+  listSubscriptions,
+  activateSubscription,
+  deactivateSubscription,
+} = require("../services/subscriptionService");
+
+function AnalyticsEvent() {
+  return getAnalyticsEventModel();
+}
+
+async function mapTimelineUsers(timeline) {
+  const userIds = [
+    ...new Set(
+      timeline.filter((row) => row.userId).map((row) => String(row.userId)),
+    ),
+  ];
+
+  const users = userIds.length
+    ? await User.find({ _id: { $in: userIds } })
+        .select("name email role")
+        .lean()
+    : [];
+  const userMap = new Map(users.map((user) => [String(user._id), user]));
+
+  return timeline.map((row) => ({
+    id: String(row._id),
+    event: row.event,
+    properties: row.properties ?? {},
+    path: row.path ?? "",
+    sessionId: row.sessionId ?? "",
+    userId: row.userId
+      ? {
+          id: String(row.userId),
+          name: userMap.get(String(row.userId))?.name ?? "",
+          email: userMap.get(String(row.userId))?.email ?? "",
+          role: userMap.get(String(row.userId))?.role ?? "",
+        }
+      : null,
+    createdAt: row.createdAt,
+    client: mapClientFields(row),
+  }));
+}
+
+async function mapSimpleTimeline(timeline) {
+  return timeline.map((row) => ({
+    id: String(row._id),
+    event: row.event,
+    properties: row.properties ?? {},
+    path: row.path ?? "",
+    sessionId: row.sessionId ?? "",
+    userId: row.userId ? String(row.userId) : null,
+    createdAt: row.createdAt,
+    client: mapClientFields(row),
+  }));
+}
 
 const activePropertyFilter = { isDeleted: { $ne: true } };
 const ALLOWED_EVENTS = new Set([
@@ -140,7 +203,7 @@ const trackEvents = async (req, res) => {
     });
   }
 
-  await AnalyticsEvent.insertMany(docs, { ordered: false });
+  await AnalyticsEvent().insertMany(docs, { ordered: false });
 
   res.status(201).json({
     success: true,
@@ -336,7 +399,7 @@ const getOverview = async (req, res) => {
         },
       },
     ]),
-    AnalyticsEvent.aggregate([
+    AnalyticsEvent().aggregate([
       { $match: dateMatch },
       {
         $group: {
@@ -351,20 +414,20 @@ const getOverview = async (req, res) => {
       },
       { $sort: { "_id.date": 1 } },
     ]),
-    AnalyticsEvent.aggregate([
+    AnalyticsEvent().aggregate([
       { $match: dateMatch },
       { $group: { _id: "$event", count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]),
-    AnalyticsEvent.countDocuments({
+    AnalyticsEvent().countDocuments({
       ...dateMatch,
       event: "auction_viewed",
     }),
-    AnalyticsEvent.countDocuments({
+    AnalyticsEvent().countDocuments({
       ...dateMatch,
       event: "bid_placed",
     }),
-    AnalyticsEvent.countDocuments({
+    AnalyticsEvent().countDocuments({
       ...dateMatch,
       event: "click",
     }),
@@ -507,21 +570,10 @@ const getUserActivity = async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query);
   const { filter } = activityFilter;
 
-  const [
-    total,
-    timeline,
-    user,
-    journeyRows,
-    topClickRows,
-    summaryRows,
-    ipRows,
-    deviceRows,
-    sessionRows,
-    searchRows,
-    locationRows,
-  ] = await Promise.all([
-    AnalyticsEvent.countDocuments(filter),
-    AnalyticsEvent.find(filter)
+  const [total, timeline, user, journeyRows, topClickRows, summaryRows] =
+    await Promise.all([
+    AnalyticsEvent().countDocuments(filter),
+    AnalyticsEvent().find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -531,7 +583,7 @@ const getUserActivity = async (req, res) => {
           .select("name email role phone createdAt")
           .lean()
       : null,
-    AnalyticsEvent.aggregate([
+    AnalyticsEvent().aggregate([
       { $match: { ...filter, event: "page_view" } },
       { $sort: { createdAt: 1 } },
       {
@@ -545,7 +597,7 @@ const getUserActivity = async (req, res) => {
       { $sort: { firstSeen: 1 } },
       { $limit: 50 },
     ]),
-    AnalyticsEvent.aggregate([
+    AnalyticsEvent().aggregate([
       { $match: { ...filter, event: "click" } },
       {
         $group: {
@@ -572,7 +624,7 @@ const getUserActivity = async (req, res) => {
       { $sort: { count: -1 } },
       { $limit: 20 },
     ]),
-    AnalyticsEvent.aggregate([
+    AnalyticsEvent().aggregate([
       { $match: filter },
       {
         $group: {
@@ -632,15 +684,7 @@ const getUserActivity = async (req, res) => {
         path: row._id.path || "",
         count: row.count,
       })),
-      timeline: timeline.map((row) => ({
-        id: String(row._id),
-        event: row.event,
-        properties: row.properties ?? {},
-        path: row.path ?? "",
-        sessionId: row.sessionId ?? "",
-        userId: row.userId ? String(row.userId) : null,
-        createdAt: row.createdAt,
-      })),
+      timeline: await mapSimpleTimeline(timeline),
       pagination: buildPaginationMeta(page, limit, total),
     },
   });
@@ -706,8 +750,8 @@ const getActivityUsers = async (req, res) => {
   pipeline.push({ $skip: skip }, { $limit: limit });
 
   const [countResult, rows] = await Promise.all([
-    AnalyticsEvent.aggregate(countPipeline),
-    AnalyticsEvent.aggregate(pipeline),
+    AnalyticsEvent().aggregate(countPipeline),
+    AnalyticsEvent().aggregate(pipeline),
   ]);
 
   const total = countResult[0]?.total ?? 0;
@@ -774,8 +818,8 @@ const getActivitySessions = async (req, res) => {
   const dataPipeline = [...pipeline, { $skip: skip }, { $limit: limit }];
 
   const [countResult, rows] = await Promise.all([
-    AnalyticsEvent.aggregate(countPipeline),
-    AnalyticsEvent.aggregate(dataPipeline),
+    AnalyticsEvent().aggregate(countPipeline),
+    AnalyticsEvent().aggregate(dataPipeline),
   ]);
 
   const total = countResult[0]?.total ?? 0;
@@ -824,11 +868,15 @@ const getPropertyAnalytics = async (req, res) => {
   }
 
   const canAccess =
-    isAdminRole(req.user?.role) || isPropertyOwner(req.user, property);
+    isAdminRole(req.user?.role) ||
+    ((await hasPropertyAnalyticsAccess(req.user)) &&
+      isPropertyOwner(req.user, property));
   if (!canAccess) {
     return res.status(403).json({
       success: false,
-      message: "You do not have access to this property analytics",
+      message: isPropertyOwner(req.user, property)
+        ? "Property analytics requires an active analytics subscription"
+        : "You do not have access to this property analytics",
     });
   }
 
@@ -858,14 +906,13 @@ const getPropertyAnalytics = async (req, res) => {
     trafficSourceRows,
     nextPageRows,
   ] = await Promise.all([
-    AnalyticsEvent.countDocuments(filter),
-    AnalyticsEvent.find(filter)
+    AnalyticsEvent().countDocuments(filter),
+    AnalyticsEvent().find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate("userId", "name email role")
       .lean(),
-    AnalyticsEvent.aggregate([
+    AnalyticsEvent().aggregate([
       { $match: viewFilter },
       {
         $group: {
@@ -889,7 +936,7 @@ const getPropertyAnalytics = async (req, res) => {
       },
       { $sort: { date: 1 } },
     ]),
-    AnalyticsEvent.aggregate([
+    AnalyticsEvent().aggregate([
       {
         $match: {
           ...filter,
@@ -920,7 +967,7 @@ const getPropertyAnalytics = async (req, res) => {
       { $sort: { count: -1 } },
       { $limit: 15 },
     ]),
-    AnalyticsEvent.aggregate([
+    AnalyticsEvent().aggregate([
       { $match: filter },
       { $group: { _id: "$event", count: { $sum: 1 } } },
     ]),
@@ -928,7 +975,7 @@ const getPropertyAnalytics = async (req, res) => {
       propertyId,
       createdAt: { $gte: range.from, $lte: range.to },
     }),
-    AnalyticsEvent.aggregate([
+    AnalyticsEvent().aggregate([
       { $match: viewFilter },
       {
         $group: {
@@ -952,16 +999,16 @@ const getPropertyAnalytics = async (req, res) => {
         },
       },
     ]),
-    AnalyticsEvent.countDocuments({
+    AnalyticsEvent().countDocuments({
       ...filter,
       event: "property_card_click",
     }),
-    AnalyticsEvent.countDocuments({
+    AnalyticsEvent().countDocuments({
       ...filter,
       event: "click",
       path: { $regex: `^/auctions/${propertyId}(/|$)` },
     }),
-    AnalyticsEvent.aggregate([
+    AnalyticsEvent().aggregate([
       { $match: viewFilter },
       {
         $group: {
@@ -1042,7 +1089,7 @@ const getPropertyAnalytics = async (req, res) => {
         },
       },
     ]),
-    AnalyticsEvent.aggregate([
+    AnalyticsEvent().aggregate([
       { $match: viewFilter },
       {
         $project: {
@@ -1090,7 +1137,7 @@ const getPropertyAnalytics = async (req, res) => {
       { $sort: { count: -1 } },
       { $limit: 15 },
     ]),
-    AnalyticsEvent.aggregate([
+    AnalyticsEvent().aggregate([
       { $match: viewFilter },
       {
         $project: {
@@ -1129,7 +1176,7 @@ const getPropertyAnalytics = async (req, res) => {
       { $sort: { count: -1 } },
       { $limit: 10 },
     ]),
-    AnalyticsEvent.aggregate([
+    AnalyticsEvent().aggregate([
       { $match: viewFilter },
       {
         $lookup: {
@@ -1164,7 +1211,7 @@ const getPropertyAnalytics = async (req, res) => {
       { $sort: { count: -1 } },
       { $limit: 10 },
     ]),
-    AnalyticsEvent.aggregate([
+    AnalyticsEvent().aggregate([
       { $match: viewFilter },
       {
         $lookup: {
@@ -1305,24 +1352,102 @@ const getPropertyAnalytics = async (req, res) => {
           createdAt: step.createdAt,
         })),
       })),
-      timeline: timeline.map((row) => ({
-        id: String(row._id),
-        event: row.event,
-        properties: row.properties ?? {},
-        path: row.path ?? "",
-        sessionId: row.sessionId ?? "",
-        userId: row.userId
-          ? {
-              id: String(row.userId._id ?? row.userId),
-              name: row.userId.name ?? "",
-              email: row.userId.email ?? "",
-              role: row.userId.role ?? "",
-            }
-          : null,
-        createdAt: row.createdAt,
-      })),
+      timeline: await mapTimelineUsers(timeline),
       pagination: buildPaginationMeta(page, limit, totalEvents),
     },
+  });
+};
+
+const getStatus = async (req, res) => {
+  const status = await getAnalyticsStatus();
+  res.json({ success: true, data: status });
+};
+
+const getAccess = async (req, res) => {
+  const status = await getAnalyticsStatus();
+  const access = await getUserAnalyticsAccess(req.user);
+
+  res.json({
+    success: true,
+    data: {
+      platform: status,
+      ...access,
+    },
+  });
+};
+
+const getSubscriptions = async (_req, res) => {
+  const subscriptions = await listSubscriptions();
+  res.json({ success: true, data: subscriptions });
+};
+
+const activateUserSubscription = async (req, res) => {
+  try {
+    const subscription = await activateSubscription(req.body, req.user?._id);
+    res.status(201).json({
+      success: true,
+      message: "Analytics subscription activated for user",
+      data: subscription,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message || "Failed to activate subscription",
+    });
+  }
+};
+
+const deactivateUserSubscription = async (req, res) => {
+  const userId = req.body.userId?.trim();
+  if (!userId) {
+    return res.status(400).json({
+      success: false,
+      message: "userId is required",
+    });
+  }
+
+  await deactivateSubscription(userId);
+  res.json({
+    success: true,
+    message: "Analytics subscription deactivated for user",
+  });
+};
+
+const activateAnalyticsLicense = async (req, res) => {
+  const license = await activateLicense(req.body, req.user?._id);
+  res.status(201).json({
+    success: true,
+    message: "Analytics license activated",
+    data: {
+      licenseKey: license.licenseKey,
+      organizationName: license.organizationName,
+      plan: license.plan,
+      features: license.features,
+      expiresAt: license.expiresAt,
+    },
+  });
+};
+
+const deactivateAnalyticsLicense = async (req, res) => {
+  const licenseKey = req.body.licenseKey?.trim() || req.params.licenseKey?.trim();
+  if (!licenseKey) {
+    return res.status(400).json({
+      success: false,
+      message: "licenseKey is required",
+    });
+  }
+
+  await deactivateLicense(licenseKey);
+  res.json({
+    success: true,
+    message: "Analytics license deactivated",
+  });
+};
+
+const createAnalyticsLicenseKey = async (_req, res) => {
+  res.json({
+    success: true,
+    data: { licenseKey: generateLicenseKey() },
   });
 };
 
@@ -1333,4 +1458,12 @@ module.exports = {
   getActivityUsers,
   getActivitySessions,
   getPropertyAnalytics,
+  getStatus,
+  getAccess,
+  getSubscriptions,
+  activateUserSubscription,
+  deactivateUserSubscription,
+  activateAnalyticsLicense,
+  deactivateAnalyticsLicense,
+  createAnalyticsLicenseKey,
 };
