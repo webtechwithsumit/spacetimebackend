@@ -25,6 +25,8 @@ app.set("trust proxy", 1);
 // Security headers - CSP Scalar/CDN allow (warna /reference blank dikhta hai)
 app.use(
   helmet({
+    // Allow frontend (different port/domain) to embed /uploads images
+    crossOriginResourcePolicy: { policy: "cross-origin" },
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
