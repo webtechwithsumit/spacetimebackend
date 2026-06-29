@@ -23,6 +23,11 @@ const {
   isAdminRole,
   isPropertyOwner,
 } = require("../middleware/requirePropertyManager");
+const {
+  buildClientMetadata,
+  mapClientFields,
+  formatLocation,
+} = require("../utils/clientMetadata");
 
 const activePropertyFilter = { isDeleted: { $ne: true } };
 const ALLOWED_EVENTS = new Set([
@@ -102,11 +107,17 @@ const trackEvents = async (req, res) => {
   }
 
   const userAgent = req.headers["user-agent"];
+  const clientMetadata = buildClientMetadata(req, req.body?.clientContext);
   const docs = [];
 
   for (const item of events) {
     const event = String(item?.event ?? "").trim();
     if (!ALLOWED_EVENTS.has(event)) continue;
+
+    const itemClientMetadata = buildClientMetadata(
+      req,
+      item?.clientContext || req.body?.clientContext,
+    );
 
     docs.push({
       event,
@@ -117,7 +128,8 @@ const trackEvents = async (req, res) => {
         ? String(item.sessionId).slice(0, 128)
         : undefined,
       path: item?.path ? String(item.path).slice(0, 512) : undefined,
-      userAgent,
+      userAgent: itemClientMetadata.userAgent || userAgent,
+      ...itemClientMetadata,
     });
   }
 
@@ -451,11 +463,32 @@ function buildActivityFilter(query, range) {
     filter.event = String(query.event).trim();
   }
 
+  if (query.ip) {
+    filter.ipAddress = String(query.ip).trim().slice(0, 45);
+  }
+
+  if (query.deviceType) {
+    filter.deviceType = String(query.deviceType).trim();
+  }
+
   if (!query.userId && !query.sessionId) {
     return { error: "userId or sessionId is required" };
   }
 
   return { filter };
+}
+
+function mapTimelineRow(row) {
+  return {
+    id: String(row._id),
+    event: row.event,
+    properties: row.properties ?? {},
+    path: row.path ?? "",
+    sessionId: row.sessionId ?? "",
+    userId: row.userId ? String(row.userId) : null,
+    createdAt: row.createdAt,
+    client: mapClientFields(row),
+  };
 }
 
 const getUserActivity = async (req, res) => {
@@ -474,70 +507,81 @@ const getUserActivity = async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query);
   const { filter } = activityFilter;
 
-  const [total, timeline, user, journeyRows, topClickRows, summaryRows] =
-    await Promise.all([
-      AnalyticsEvent.countDocuments(filter),
-      AnalyticsEvent.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      req.query.userId && isValidObjectId(req.query.userId)
-        ? User.findById(req.query.userId)
-            .select("name email role phone createdAt")
-            .lean()
-        : null,
-      AnalyticsEvent.aggregate([
-        { $match: { ...filter, event: "page_view" } },
-        { $sort: { createdAt: 1 } },
-        {
-          $group: {
-            _id: "$path",
-            firstSeen: { $first: "$createdAt" },
-            lastSeen: { $last: "$createdAt" },
-            views: { $sum: 1 },
-          },
+  const [
+    total,
+    timeline,
+    user,
+    journeyRows,
+    topClickRows,
+    summaryRows,
+    ipRows,
+    deviceRows,
+    sessionRows,
+    searchRows,
+    locationRows,
+  ] = await Promise.all([
+    AnalyticsEvent.countDocuments(filter),
+    AnalyticsEvent.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    req.query.userId && isValidObjectId(req.query.userId)
+      ? User.findById(req.query.userId)
+          .select("name email role phone createdAt")
+          .lean()
+      : null,
+    AnalyticsEvent.aggregate([
+      { $match: { ...filter, event: "page_view" } },
+      { $sort: { createdAt: 1 } },
+      {
+        $group: {
+          _id: "$path",
+          firstSeen: { $first: "$createdAt" },
+          lastSeen: { $last: "$createdAt" },
+          views: { $sum: 1 },
         },
-        { $sort: { firstSeen: 1 } },
-        { $limit: 50 },
-      ]),
-      AnalyticsEvent.aggregate([
-        { $match: { ...filter, event: "click" } },
-        {
-          $group: {
-            _id: {
-              label: {
-                $ifNull: [
-                  "$properties.analyticsId",
-                  {
-                    $ifNull: [
-                      "$properties.text",
-                      {
-                        $ifNull: ["$properties.href", "$properties.tag"],
-                      },
-                    ],
-                  },
-                ],
-              },
-              href: { $ifNull: ["$properties.href", ""] },
-              path: { $ifNull: ["$path", ""] },
+      },
+      { $sort: { firstSeen: 1 } },
+      { $limit: 50 },
+    ]),
+    AnalyticsEvent.aggregate([
+      { $match: { ...filter, event: "click" } },
+      {
+        $group: {
+          _id: {
+            label: {
+              $ifNull: [
+                "$properties.analyticsId",
+                {
+                  $ifNull: [
+                    "$properties.text",
+                    {
+                      $ifNull: ["$properties.href", "$properties.tag"],
+                    },
+                  ],
+                },
+              ],
             },
-            count: { $sum: 1 },
+            href: { $ifNull: ["$properties.href", ""] },
+            path: { $ifNull: ["$path", ""] },
           },
+          count: { $sum: 1 },
         },
-        { $sort: { count: -1 } },
-        { $limit: 20 },
-      ]),
-      AnalyticsEvent.aggregate([
-        { $match: filter },
-        {
-          $group: {
-            _id: "$event",
-            count: { $sum: 1 },
-          },
+      },
+      { $sort: { count: -1 } },
+      { $limit: 20 },
+    ]),
+    AnalyticsEvent.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: "$event",
+          count: { $sum: 1 },
         },
-      ]),
-    ]);
+      },
+    ]),
+  ]);
 
   const summary = summaryRows.reduce(
     (acc, row) => {

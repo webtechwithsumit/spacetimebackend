@@ -9,6 +9,7 @@ async function recordAnalyticsEvent({
   sessionId,
   path,
   userAgent,
+  clientMetadata = {},
 }) {
   if (!event) return;
 
@@ -27,6 +28,18 @@ async function recordAnalyticsEvent({
       sessionId,
       path,
       userAgent,
+      ipAddress: clientMetadata.ipAddress,
+      browser: clientMetadata.browser,
+      os: clientMetadata.os,
+      deviceType: clientMetadata.deviceType,
+      country: clientMetadata.country,
+      region: clientMetadata.region,
+      city: clientMetadata.city,
+      timezone: clientMetadata.timezone,
+      language: clientMetadata.language,
+      referrer: clientMetadata.referrer,
+      screenWidth: clientMetadata.screenWidth,
+      screenHeight: clientMetadata.screenHeight,
     });
   } catch (err) {
     console.error("Failed to record analytics event:", err.message);

@@ -20,6 +20,7 @@ const analyticsRoutes = require("./routes/analytics");
 initBaseMediaFolders();
 
 const app = express();
+app.set("trust proxy", 1);
 
 // Security headers - CSP Scalar/CDN allow (warna /reference blank dikhta hai)
 app.use(
