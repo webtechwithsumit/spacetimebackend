@@ -4,7 +4,7 @@ const { slugify } = require("./slugify");
 
 const UPLOAD_ROOT = path.join(process.cwd(), "uploads");
 
-const MEDIA_CATEGORIES = ["profile", "property", "kyc"];
+const MEDIA_CATEGORIES = ["profile", "property", "kyc", "blog"];
 
 const PROPERTY_MEDIA_FOLDERS = [
   "images",
@@ -44,6 +44,18 @@ function ensurePropertyFolders(propertyName) {
 function resolveUploadDir({ category, entityName, subType }) {
   if (!MEDIA_CATEGORIES.includes(category)) {
     throw new Error(`Invalid media category: ${category}`);
+  }
+
+  if (category === "blog") {
+    if (!entityName?.trim()) {
+      throw new Error("Title is required for blog media upload");
+    }
+    const { slug, dir } = ensureEntityFolder("blog", entityName);
+    return {
+      slug,
+      dir,
+      relativePath: `blog/${slug}`,
+    };
   }
 
   if (category === "property") {
