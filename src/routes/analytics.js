@@ -75,4 +75,10 @@ router.get(
   analyticsController.getActivitySessions,
 );
 
+router.get(
+  "/property/:propertyId",
+  authenticate,
+  analyticsController.getPropertyAnalytics,
+);
+
 module.exports = router;

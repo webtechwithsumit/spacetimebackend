@@ -107,6 +107,7 @@ const placeBid = async (req, res) => {
       city: property.city || "",
       category: property.category || "",
     },
+    propertyId: property._id,
     userId: req.user._id,
     userAgent: req.headers["user-agent"],
   });

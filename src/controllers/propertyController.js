@@ -91,6 +91,28 @@ const getAll = async (req, res) => {
 const getLiveAuctions = async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query);
   const filter = buildLiveStageFilter();
+
+  const searchQuery = trimString(req.query.search);
+  if (searchQuery) {
+    filter.$or = [
+      { title: { $regex: searchQuery, $options: "i" } },
+      { city: { $regex: searchQuery, $options: "i" } },
+      { category: { $regex: searchQuery, $options: "i" } },
+      { microMarketLocality: { $regex: searchQuery, $options: "i" } },
+      { buildingType: { $regex: searchQuery, $options: "i" } },
+    ];
+  }
+
+  const categoryFilter = trimString(req.query.category);
+  if (categoryFilter) {
+    filter.category = categoryFilter;
+  }
+
+  const cityFilter = trimString(req.query.city);
+  if (cityFilter) {
+    filter.city = { $regex: cityFilter, $options: "i" };
+  }
+
   const sort =
     req.query.sort === "latest"
       ? { createdAt: -1 }

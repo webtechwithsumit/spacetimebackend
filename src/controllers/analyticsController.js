@@ -14,6 +14,15 @@ const {
 const { recordAnalyticsEvent } = require("../utils/recordAnalyticsEvent");
 const { buildPaginationMeta, parsePagination } = require("../utils/pagination");
 const { isValidObjectId } = require("../utils/validateId");
+const {
+  resolveEventPropertyId,
+  buildPropertyAnalyticsFilter,
+  buildPropertyViewFilter,
+} = require("../utils/propertyAnalyticsHelpers");
+const {
+  isAdminRole,
+  isPropertyOwner,
+} = require("../middleware/requirePropertyManager");
 
 const activePropertyFilter = { isDeleted: { $ne: true } };
 const ALLOWED_EVENTS = new Set([
@@ -25,6 +34,8 @@ const ALLOWED_EVENTS = new Set([
   "property_created",
   "logout",
   "click",
+  "property_card_click",
+  "property_search",
 ]);
 
 function parseDateRange(query) {
@@ -101,6 +112,7 @@ const trackEvents = async (req, res) => {
       event,
       properties: sanitizeProperties(item?.properties),
       userId: req.user?._id,
+      propertyId: resolveEventPropertyId(item),
       sessionId: item?.sessionId
         ? String(item.sessionId).slice(0, 128)
         : undefined,
@@ -743,10 +755,538 @@ const getActivitySessions = async (req, res) => {
   });
 };
 
+const getPropertyAnalytics = async (req, res) => {
+  const { propertyId } = req.params;
+  if (!isValidObjectId(propertyId)) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Invalid property id" });
+  }
+
+  const property = await Property.findOne({
+    _id: propertyId,
+    ...activePropertyFilter,
+  })
+    .select(
+      "title city category buildingType microMarketLocality auctionStatus status sellerId",
+    )
+    .populate("sellerId", "name email role")
+    .lean();
+
+  if (!property) {
+    return res
+      .status(404)
+      .json({ success: false, message: "Property not found" });
+  }
+
+  const canAccess =
+    isAdminRole(req.user?.role) || isPropertyOwner(req.user, property);
+  if (!canAccess) {
+    return res.status(403).json({
+      success: false,
+      message: "You do not have access to this property analytics",
+    });
+  }
+
+  const range = parseDateRange(req.query);
+  if (range.error) {
+    return res.status(400).json({ success: false, message: range.error });
+  }
+
+  const { page, limit, skip } = parsePagination(req.query);
+  const filter = buildPropertyAnalyticsFilter(propertyId, range);
+  const viewFilter = buildPropertyViewFilter(propertyId, range);
+  const propertyPath = `/auctions/${propertyId}`;
+
+  const [
+    totalEvents,
+    timeline,
+    viewsOverTime,
+    topClickRows,
+    eventSummaryRows,
+    bidCount,
+    viewSessions,
+    cardClickCount,
+    pageClickCount,
+    visitorRows,
+    searchBeforeViewRows,
+    categoryInterestRows,
+    trafficSourceRows,
+    nextPageRows,
+  ] = await Promise.all([
+    AnalyticsEvent.countDocuments(filter),
+    AnalyticsEvent.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate("userId", "name email role")
+      .lean(),
+    AnalyticsEvent.aggregate([
+      { $match: viewFilter },
+      {
+        $group: {
+          _id: {
+            $dateToString: { format: "%Y-%m-%d", date: "$createdAt" },
+          },
+          count: { $sum: 1 },
+          visitors: {
+            $addToSet: {
+              $ifNull: [{ $toString: "$userId" }, "$sessionId"],
+            },
+          },
+        },
+      },
+      {
+        $project: {
+          date: "$_id",
+          count: 1,
+          uniqueVisitors: { $size: "$visitors" },
+        },
+      },
+      { $sort: { date: 1 } },
+    ]),
+    AnalyticsEvent.aggregate([
+      {
+        $match: {
+          ...filter,
+          event: "click",
+        },
+      },
+      {
+        $group: {
+          _id: {
+            label: {
+              $ifNull: [
+                "$properties.analyticsId",
+                {
+                  $ifNull: [
+                    "$properties.text",
+                    {
+                      $ifNull: ["$properties.href", "$properties.tag"],
+                    },
+                  ],
+                },
+              ],
+            },
+            href: { $ifNull: ["$properties.href", ""] },
+          },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { count: -1 } },
+      { $limit: 15 },
+    ]),
+    AnalyticsEvent.aggregate([
+      { $match: filter },
+      { $group: { _id: "$event", count: { $sum: 1 } } },
+    ]),
+    Bid.countDocuments({
+      propertyId,
+      createdAt: { $gte: range.from, $lte: range.to },
+    }),
+    AnalyticsEvent.aggregate([
+      { $match: viewFilter },
+      {
+        $group: {
+          _id: {
+            $ifNull: [{ $toString: "$userId" }, "$sessionId"],
+          },
+          isRegistered: {
+            $max: {
+              $cond: [{ $ifNull: ["$userId", false] }, 1, 0],
+            },
+          },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          uniqueVisitors: { $sum: 1 },
+          registeredVisitors: {
+            $sum: "$isRegistered",
+          },
+        },
+      },
+    ]),
+    AnalyticsEvent.countDocuments({
+      ...filter,
+      event: "property_card_click",
+    }),
+    AnalyticsEvent.countDocuments({
+      ...filter,
+      event: "click",
+      path: { $regex: `^/auctions/${propertyId}(/|$)` },
+    }),
+    AnalyticsEvent.aggregate([
+      { $match: viewFilter },
+      {
+        $group: {
+          _id: {
+            visitorKey: {
+              $ifNull: [{ $toString: "$userId" }, "$sessionId"],
+            },
+            userId: "$userId",
+            sessionId: "$sessionId",
+          },
+          views: { $sum: 1 },
+          firstSeen: { $min: "$createdAt" },
+          lastSeen: { $max: "$createdAt" },
+        },
+      },
+      { $sort: { lastSeen: -1 } },
+      { $limit: 20 },
+      {
+        $lookup: {
+          from: "users",
+          localField: "_id.userId",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: "analyticevents",
+          let: {
+            visitorKey: "$_id.visitorKey",
+            userId: "$_id.userId",
+            sessionId: "$_id.sessionId",
+          },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    {
+                      $gte: ["$createdAt", range.from],
+                    },
+                    {
+                      $lte: ["$createdAt", range.to],
+                    },
+                    {
+                      $or: [
+                        {
+                          $and: [
+                            { $ne: ["$$userId", null] },
+                            { $eq: ["$userId", "$$userId"] },
+                          ],
+                        },
+                        {
+                          $and: [
+                            { $ne: ["$$sessionId", null] },
+                            { $eq: ["$sessionId", "$$sessionId"] },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+            { $sort: { createdAt: 1 } },
+            { $limit: 12 },
+            {
+              $project: {
+                event: 1,
+                path: 1,
+                properties: 1,
+                createdAt: 1,
+              },
+            },
+          ],
+          as: "journey",
+        },
+      },
+    ]),
+    AnalyticsEvent.aggregate([
+      { $match: viewFilter },
+      {
+        $project: {
+          sessionId: 1,
+          viewedAt: "$createdAt",
+        },
+      },
+      {
+        $lookup: {
+          from: "analyticevents",
+          let: { sessionId: "$sessionId", viewedAt: "$viewedAt" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$sessionId", "$$sessionId"] },
+                    { $eq: ["$event", "property_search"] },
+                    { $lt: ["$createdAt", "$$viewedAt"] },
+                    { $gte: ["$createdAt", range.from] },
+                  ],
+                },
+              },
+            },
+            { $sort: { createdAt: -1 } },
+            { $limit: 1 },
+          ],
+          as: "search",
+        },
+      },
+      { $unwind: { path: "$search", preserveNullAndEmptyArrays: false } },
+      {
+        $group: {
+          _id: {
+            query: { $ifNull: ["$search.properties.query", ""] },
+            category: { $ifNull: ["$search.properties.category", ""] },
+            city: { $ifNull: ["$search.properties.city", ""] },
+            buildingType: {
+              $ifNull: ["$search.properties.buildingType", ""],
+            },
+          },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { count: -1 } },
+      { $limit: 15 },
+    ]),
+    AnalyticsEvent.aggregate([
+      { $match: viewFilter },
+      {
+        $project: {
+          sessionId: 1,
+          viewedAt: "$createdAt",
+        },
+      },
+      {
+        $lookup: {
+          from: "analyticevents",
+          let: { sessionId: "$sessionId", viewedAt: "$viewedAt" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$sessionId", "$$sessionId"] },
+                    { $eq: ["$event", "property_search"] },
+                    { $lt: ["$createdAt", "$$viewedAt"] },
+                    { $gte: ["$createdAt", range.from] },
+                  ],
+                },
+              },
+            },
+          ],
+          as: "searches",
+        },
+      },
+      { $unwind: { path: "$searches", preserveNullAndEmptyArrays: false } },
+      {
+        $group: {
+          _id: { $ifNull: ["$searches.properties.category", "Unknown"] },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { count: -1 } },
+      { $limit: 10 },
+    ]),
+    AnalyticsEvent.aggregate([
+      { $match: viewFilter },
+      {
+        $lookup: {
+          from: "analyticevents",
+          let: { sessionId: "$sessionId", viewedAt: "$createdAt" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$sessionId", "$$sessionId"] },
+                    { $eq: ["$event", "page_view"] },
+                    { $lt: ["$createdAt", "$$viewedAt"] },
+                    { $gte: ["$createdAt", range.from] },
+                  ],
+                },
+              },
+            },
+            { $sort: { createdAt: -1 } },
+            { $limit: 1 },
+          ],
+          as: "referrer",
+        },
+      },
+      { $unwind: { path: "$referrer", preserveNullAndEmptyArrays: false } },
+      {
+        $group: {
+          _id: { $ifNull: ["$referrer.path", "$referrer.properties.path"] },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { count: -1 } },
+      { $limit: 10 },
+    ]),
+    AnalyticsEvent.aggregate([
+      { $match: viewFilter },
+      {
+        $lookup: {
+          from: "analyticevents",
+          let: { sessionId: "$sessionId", viewedAt: "$createdAt" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$sessionId", "$$sessionId"] },
+                    { $eq: ["$event", "page_view"] },
+                    { $gt: ["$createdAt", "$$viewedAt"] },
+                    { $lte: ["$createdAt", range.to] },
+                    {
+                      $not: {
+                        $regexMatch: {
+                          input: { $ifNull: ["$path", ""] },
+                          regex: `^/auctions/${propertyId}(/|$)`,
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+            { $sort: { createdAt: 1 } },
+            { $limit: 1 },
+          ],
+          as: "nextPage",
+        },
+      },
+      { $unwind: { path: "$nextPage", preserveNullAndEmptyArrays: false } },
+      {
+        $group: {
+          _id: {
+            $ifNull: ["$nextPage.path", "$nextPage.properties.path"],
+          },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { count: -1 } },
+      { $limit: 10 },
+    ]),
+  ]);
+
+  const eventSummary = eventSummaryRows.reduce((acc, row) => {
+    acc[row._id] = row.count;
+    return acc;
+  }, {});
+
+  const totalViews = eventSummary.auction_viewed ?? 0;
+  const uniqueVisitors = viewSessions[0]?.uniqueVisitors ?? 0;
+  const registeredVisitors = viewSessions[0]?.registeredVisitors ?? 0;
+  const guestVisitors = Math.max(uniqueVisitors - registeredVisitors, 0);
+  const viewToBidRate =
+    totalViews > 0 ? Math.round((bidCount / totalViews) * 1000) / 10 : 0;
+
+  res.json({
+    success: true,
+    data: {
+      property: {
+        id: String(property._id),
+        title: property.title,
+        city: property.city ?? "",
+        category: property.category ?? "",
+        buildingType: property.buildingType ?? "",
+        microMarketLocality: property.microMarketLocality ?? "",
+        auctionStatus: property.auctionStatus ?? "",
+        status: property.status ?? "",
+        seller: property.sellerId
+          ? {
+              id: String(property.sellerId._id ?? property.sellerId),
+              name: property.sellerId.name ?? "",
+              email: property.sellerId.email ?? "",
+            }
+          : null,
+      },
+      range: {
+        from: range.from.toISOString(),
+        to: range.to.toISOString(),
+      },
+      summary: {
+        uniqueVisitors,
+        registeredVisitors,
+        guestVisitors,
+        totalViews,
+        cardClicks: cardClickCount,
+        pageClicks: pageClickCount,
+        totalClicks: eventSummary.click ?? 0,
+        bidsPlaced: bidCount,
+        viewToBidRate,
+        totalEvents,
+      },
+      viewsOverTime: viewsOverTime.map((row) => ({
+        date: row.date,
+        count: row.count,
+        uniqueVisitors: row.uniqueVisitors,
+      })),
+      topClicks: topClickRows.map((row) => ({
+        label: row._id.label || "Unknown",
+        href: row._id.href || "",
+        count: row.count,
+      })),
+      trafficSources: trafficSourceRows.map((row) => ({
+        path: row._id || "Unknown",
+        count: row.count,
+      })),
+      nextPages: nextPageRows.map((row) => ({
+        path: row._id || "Unknown",
+        count: row.count,
+      })),
+      searchesBeforeView: searchBeforeViewRows.map((row) => ({
+        query: row._id.query || "",
+        category: row._id.category || "",
+        city: row._id.city || "",
+        buildingType: row._id.buildingType || "",
+        count: row.count,
+      })),
+      categoryInterest: categoryInterestRows.map((row) => ({
+        category: row._id,
+        count: row.count,
+      })),
+      visitors: visitorRows.map((row) => ({
+        visitorKey: row._id.visitorKey,
+        userId: row._id.userId ? String(row._id.userId) : null,
+        sessionId: row._id.sessionId ?? "",
+        name: row.user?.name ?? null,
+        email: row.user?.email ?? null,
+        role: row.user?.role ?? null,
+        views: row.views,
+        firstSeen: row.firstSeen,
+        lastSeen: row.lastSeen,
+        journey: (row.journey ?? []).map((step) => ({
+          event: step.event,
+          path: step.path ?? "",
+          properties: step.properties ?? {},
+          createdAt: step.createdAt,
+        })),
+      })),
+      timeline: timeline.map((row) => ({
+        id: String(row._id),
+        event: row.event,
+        properties: row.properties ?? {},
+        path: row.path ?? "",
+        sessionId: row.sessionId ?? "",
+        userId: row.userId
+          ? {
+              id: String(row.userId._id ?? row.userId),
+              name: row.userId.name ?? "",
+              email: row.userId.email ?? "",
+              role: row.userId.role ?? "",
+            }
+          : null,
+        createdAt: row.createdAt,
+      })),
+      pagination: buildPaginationMeta(page, limit, totalEvents),
+    },
+  });
+};
+
 module.exports = {
   trackEvents,
   getOverview,
   getUserActivity,
   getActivityUsers,
   getActivitySessions,
+  getPropertyAnalytics,
 };
