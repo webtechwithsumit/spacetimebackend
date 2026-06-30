@@ -1,11 +1,10 @@
 require("express-async-errors");
 const path = require("path");
 const express = require("express");
-const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const swaggerSpec = require("./config/swagger");
-const config = require("./config");
+const corsMiddleware = require("./middleware/cors");
 const { initBaseMediaFolders, getUploadRoot } = require("./utils/mediaStorage");
 
 const authRoutes = require("./routes/auth");
@@ -21,6 +20,9 @@ initBaseMediaFolders();
 
 const app = express();
 app.set("trust proxy", 1);
+
+// CORS first — rate-limit / error responses must still include ACAO headers
+app.use(corsMiddleware);
 
 // Security headers - CSP Scalar/CDN allow (warna /reference blank dikhta hai)
 app.use(
@@ -48,16 +50,6 @@ const limiter = rateLimit({
   message: { success: false, message: "Too many requests, try again later." },
 });
 app.use("/api/", limiter);
-
-// CORS - ALLOWED_ORIGINS set ho to woh; nahi to sab allow
-app.use(
-  cors({
-    origin:
-      config.allowedOrigins.length > 0
-        ? config.allowedOrigins
-        : true,
-  })
-);
 
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "500kb" }));
