@@ -1,7 +1,6 @@
 require("dotenv").config();
 
 const enabled = String(process.env.ANALYTICS_ENABLED ?? "false").toLowerCase() === "true";
-const licenseKey = process.env.ANALYTICS_LICENSE_KEY || "";
 const mongoUri =
   process.env.ANALYTICS_MONGODB_URI ||
   process.env.MONGODB_URI?.replace(/\/[^/?]+(\?|$)/, "/spacetime-analytics$1") ||
@@ -9,7 +8,6 @@ const mongoUri =
 
 module.exports = {
   enabled,
-  licenseKey,
   mongoUri,
   pluginName: "spacetime-analytics",
   defaultFeatures: [

@@ -1,6 +1,6 @@
 const { isValidObjectId } = require("../../../utils/validateId");
 const { getAnalyticsEventModel, isAnalyticsDBConnected } = require("../db");
-const { isAnalyticsLicensed } = require("../services/licenseService");
+const { isAnalyticsActive } = require("../services/licenseService");
 
 async function recordAnalyticsEvent({
   event,
@@ -16,8 +16,8 @@ async function recordAnalyticsEvent({
   if (!event) return;
   if (!isAnalyticsDBConnected()) return;
 
-  const licensed = await isAnalyticsLicensed();
-  if (!licensed) return;
+  const active = await isAnalyticsActive();
+  if (!active) return;
 
   const resolvedPropertyId =
     propertyId ||

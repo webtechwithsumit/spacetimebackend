@@ -3,11 +3,7 @@ const { connectAnalyticsDB, isAnalyticsDBConnected } = require("./db");
 const { createAnalyticsRouter } = require("./routes/analytics.routes");
 const { recordAnalyticsEvent } = require("./utils/recordAnalyticsEvent");
 const { buildClientMetadata } = require("./utils/clientMetadata");
-const {
-  isAnalyticsLicensed,
-  getAnalyticsStatus,
-  activateLicense,
-} = require("./services/licenseService");
+const { isAnalyticsActive, getAnalyticsStatus } = require("./services/licenseService");
 
 let mounted = false;
 
@@ -18,21 +14,7 @@ async function initAnalyticsPlugin() {
   }
 
   await connectAnalyticsDB();
-
-  if (analyticsConfig.licenseKey) {
-    const licensed = await isAnalyticsLicensed();
-    if (!licensed) {
-      console.warn(
-        "Analytics plugin enabled but no valid license found. Activate license via Super-Admin API.",
-      );
-    } else {
-      console.log("Analytics plugin licensed and ready");
-    }
-  } else {
-    console.warn(
-      "Analytics plugin enabled but ANALYTICS_LICENSE_KEY is missing. Routes will stay locked until license is activated.",
-    );
-  }
+  console.log("Analytics plugin ready");
 
   return { active: true };
 }
@@ -49,8 +31,7 @@ async function getPluginStatus() {
 }
 
 async function isActive() {
-  if (!analyticsConfig.enabled || !isAnalyticsDBConnected()) return false;
-  return isAnalyticsLicensed();
+  return isAnalyticsActive();
 }
 
 async function trackEvent(payload) {
@@ -64,6 +45,5 @@ module.exports = {
   isActive,
   trackEvent,
   buildClientMetadata,
-  activateLicense,
   analyticsConfig,
 };

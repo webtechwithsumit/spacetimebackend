@@ -1,4 +1,4 @@
-const { isAnalyticsLicensed, getAnalyticsStatus } = require("../services/licenseService");
+const { isAnalyticsActive, getAnalyticsStatus } = require("../services/licenseService");
 const { isAnalyticsDBConnected } = require("../db");
 
 const requireAnalyticsActive = async (req, res, next) => {
@@ -10,13 +10,13 @@ const requireAnalyticsActive = async (req, res, next) => {
     });
   }
 
-  const licensed = await isAnalyticsLicensed();
-  if (!licensed) {
+  const active = await isAnalyticsActive();
+  if (!active) {
     const status = await getAnalyticsStatus();
     return res.status(403).json({
       success: false,
-      message: "Analytics plugin is not licensed for this deployment",
-      code: "ANALYTICS_NOT_LICENSED",
+      message: "Analytics is not enabled on this server",
+      code: "ANALYTICS_DISABLED",
       data: status,
     });
   }

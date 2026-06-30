@@ -60,27 +60,6 @@ function createAnalyticsRouter() {
   );
 
   router.get(
-    "/license/generate-key",
-    authenticate,
-    requireSuperAdmin,
-    analyticsController.createAnalyticsLicenseKey,
-  );
-
-  router.post(
-    "/license/activate",
-    authenticate,
-    requireSuperAdmin,
-    analyticsController.activateAnalyticsLicense,
-  );
-
-  router.post(
-    "/license/deactivate",
-    authenticate,
-    requireSuperAdmin,
-    analyticsController.deactivateAnalyticsLicense,
-  );
-
-  router.get(
     "/subscriptions",
     authenticate,
     requireSuperAdmin,

@@ -30,9 +30,6 @@ const {
 const { getAnalyticsEventModel } = require("../db");
 const {
   getAnalyticsStatus,
-  activateLicense,
-  deactivateLicense,
-  generateLicenseKey,
 } = require("../services/licenseService");
 const {
   getUserAnalyticsAccess,
@@ -700,11 +697,40 @@ const getActivityUsers = async (req, res) => {
   const search = String(req.query.search ?? "").trim();
   const dateMatch = { createdAt: { $gte: range.from, $lte: range.to } };
 
+  let userIdFilter = { userId: { $exists: true, $ne: null } };
+
+  if (search) {
+    const matchingUsers = await User.find({
+      $or: [
+        { name: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+        { phone: { $regex: search, $options: "i" } },
+      ],
+    })
+      .select("_id")
+      .lean();
+
+    const matchingIds = matchingUsers.map((user) => user._id);
+    if (!matchingIds.length) {
+      return res.json({
+        success: true,
+        data: [],
+        pagination: buildPaginationMeta(page, limit, 0),
+        range: {
+          from: range.from.toISOString(),
+          to: range.to.toISOString(),
+        },
+      });
+    }
+
+    userIdFilter = { userId: { $in: matchingIds } };
+  }
+
   const pipeline = [
     {
       $match: {
         ...dateMatch,
-        userId: { $exists: true, $ne: null },
+        ...userIdFilter,
       },
     },
     {
@@ -723,28 +749,7 @@ const getActivityUsers = async (req, res) => {
       },
     },
     { $sort: { lastActivityAt: -1 } },
-    {
-      $lookup: {
-        from: "users",
-        localField: "_id",
-        foreignField: "_id",
-        as: "user",
-      },
-    },
-    { $unwind: "$user" },
   ];
-
-  if (search) {
-    pipeline.push({
-      $match: {
-        $or: [
-          { "user.name": { $regex: search, $options: "i" } },
-          { "user.email": { $regex: search, $options: "i" } },
-          { "user.phone": { $regex: search, $options: "i" } },
-        ],
-      },
-    });
-  }
 
   const countPipeline = [...pipeline, { $count: "total" }];
   pipeline.push({ $skip: skip }, { $limit: limit });
@@ -755,22 +760,32 @@ const getActivityUsers = async (req, res) => {
   ]);
 
   const total = countResult[0]?.total ?? 0;
+  const userIds = rows.map((row) => row._id);
+  const users = userIds.length
+    ? await User.find({ _id: { $in: userIds } })
+        .select("name email role phone")
+        .lean()
+    : [];
+  const userMap = new Map(users.map((user) => [String(user._id), user]));
 
   res.json({
     success: true,
-    data: rows.map((row) => ({
-      userId: String(row._id),
-      name: row.user.name,
-      email: row.user.email,
-      role: row.user.role,
-      phone: row.user.phone,
-      totalEvents: row.totalEvents,
-      clicks: row.clicks,
-      pageViews: row.pageViews,
-      sessionCount: row.sessions.filter(Boolean).length,
-      firstActivityAt: row.firstActivityAt,
-      lastActivityAt: row.lastActivityAt,
-    })),
+    data: rows.map((row) => {
+      const user = userMap.get(String(row._id));
+      return {
+        userId: String(row._id),
+        name: user?.name ?? "Unknown user",
+        email: user?.email ?? "",
+        role: user?.role ?? "",
+        phone: user?.phone ?? "",
+        totalEvents: row.totalEvents,
+        clicks: row.clicks,
+        pageViews: row.pageViews,
+        sessionCount: row.sessions.filter(Boolean).length,
+        firstActivityAt: row.firstActivityAt,
+        lastActivityAt: row.lastActivityAt,
+      };
+    }),
     pagination: buildPaginationMeta(page, limit, total),
     range: {
       from: range.from.toISOString(),
@@ -1413,44 +1428,6 @@ const deactivateUserSubscription = async (req, res) => {
   });
 };
 
-const activateAnalyticsLicense = async (req, res) => {
-  const license = await activateLicense(req.body, req.user?._id);
-  res.status(201).json({
-    success: true,
-    message: "Analytics license activated",
-    data: {
-      licenseKey: license.licenseKey,
-      organizationName: license.organizationName,
-      plan: license.plan,
-      features: license.features,
-      expiresAt: license.expiresAt,
-    },
-  });
-};
-
-const deactivateAnalyticsLicense = async (req, res) => {
-  const licenseKey = req.body.licenseKey?.trim() || req.params.licenseKey?.trim();
-  if (!licenseKey) {
-    return res.status(400).json({
-      success: false,
-      message: "licenseKey is required",
-    });
-  }
-
-  await deactivateLicense(licenseKey);
-  res.json({
-    success: true,
-    message: "Analytics license deactivated",
-  });
-};
-
-const createAnalyticsLicenseKey = async (_req, res) => {
-  res.json({
-    success: true,
-    data: { licenseKey: generateLicenseKey() },
-  });
-};
-
 module.exports = {
   trackEvents,
   getOverview,
@@ -1463,7 +1440,4 @@ module.exports = {
   getSubscriptions,
   activateUserSubscription,
   deactivateUserSubscription,
-  activateAnalyticsLicense,
-  deactivateAnalyticsLicense,
-  createAnalyticsLicenseKey,
 };
