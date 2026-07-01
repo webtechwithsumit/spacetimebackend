@@ -16,6 +16,7 @@ const bidRoutes = require("./routes/bids");
 const dashboardRoutes = require("./routes/dashboard");
 const blogRoutes = require("./routes/blog");
 const communityRoutes = require("./routes/community");
+const ticketRoutes = require("./routes/tickets");
 
 initBaseMediaFolders();
 
@@ -87,6 +88,7 @@ app.use("/api/bids", bidRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/blog", blogRoutes);
 app.use("/api/community", communityRoutes);
+app.use("/api/tickets", ticketRoutes);
 
 // Analytics plugin is mounted from server.js when ANALYTICS_ENABLED=true
 

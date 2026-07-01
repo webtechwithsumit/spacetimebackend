@@ -56,6 +56,24 @@ router.get("/", authenticate, propertyController.getAll);
  *         description: |
  *           `latest` = newest properties first (createdAt desc).
  *           `ending` = ending soonest first (default).
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *         description: Search title, city, locality, or address
+ *       - in: query
+ *         name: category
+ *         schema: { type: string }
+ *         description: Filter by property category
+ *       - in: query
+ *         name: city
+ *         schema: { type: string }
+ *         description: Filter by city
+ *       - in: query
+ *         name: auctionStage
+ *         schema:
+ *           type: string
+ *           enum: [live, upcoming, ended]
+ *         description: Filter by auction stage (default live)
  *     responses:
  *       200:
  *         description: Paginated list of live auction properties with currentBidAmount

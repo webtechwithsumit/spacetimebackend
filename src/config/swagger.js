@@ -8,7 +8,7 @@ const options = {
       title: 'Spacetime API',
       version: '1.0.0',
       description:
-        'Spacetime backend API — Auth, Profile, Users, Properties, Live Auctions, and Bids.',
+        'Spacetime backend API — Auth, Profile, Users, Properties, Live Auctions, Bids, Blog, Community, Support Tickets, Dashboard, and Analytics.',
     },
     servers: [
       { url: 'http://localhost:3002' },
@@ -20,6 +20,11 @@ const options = {
       { name: 'Users', description: 'User management (Admin / Super-Admin)' },
       { name: 'Properties', description: 'Property CRUD and live auction listings' },
       { name: 'Bids', description: 'Place bids on live auction properties' },
+      { name: 'Dashboard', description: 'Role-based dashboard overview' },
+      { name: 'Blog', description: 'Public blog posts and admin CMS' },
+      { name: 'Community', description: 'Community discussions and moderation' },
+      { name: 'Support', description: 'User support tickets and admin help desk' },
+      { name: 'Analytics', description: 'Platform analytics plugin (when ANALYTICS_ENABLED=true)' },
     ],
     components: {
       securitySchemes: {
@@ -94,10 +99,34 @@ const options = {
           schema: { type: 'string' },
           description: 'User MongoDB ObjectId',
         },
+        TicketIdParam: {
+          in: 'path',
+          name: 'id',
+          required: true,
+          schema: { type: 'string' },
+          description: 'Support ticket MongoDB ObjectId',
+        },
+        PostIdParam: {
+          in: 'path',
+          name: 'id',
+          required: true,
+          schema: { type: 'string' },
+          description: 'Community post MongoDB ObjectId',
+        },
+        BlogSlugParam: {
+          in: 'path',
+          name: 'slug',
+          required: true,
+          schema: { type: 'string' },
+          description: 'Blog post URL slug',
+        },
       },
     },
   },
-  apis: [path.join(__dirname, '../routes/*.js')],
+  apis: [
+    path.join(__dirname, '../routes/*.js'),
+    path.join(__dirname, '../plugins/analytics/routes/*.js'),
+  ],
 };
 
 module.exports = swaggerJsdoc(options);
