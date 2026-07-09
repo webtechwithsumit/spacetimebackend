@@ -1,9 +1,11 @@
 const Property = require("../models/Property");
+const Bid = require("../models/Bid");
 const {
   buildPropertyListFilter,
   canAccessPropertyList,
   canModifyProperty,
   canViewProperty,
+  isAdminRole,
 } = require("../middleware/requirePropertyManager");
 const {
   buildLegalDocuments,
@@ -69,6 +71,50 @@ const getAll = async (req, res) => {
     }
   }
 
+  const sellerIdQuery = trimString(req.query.sellerId);
+  if (sellerIdQuery) {
+    if (!isAdminRole(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "Only Admin can filter properties by seller",
+      });
+    }
+    if (!isValidObjectId(sellerIdQuery)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid seller ID",
+      });
+    }
+    filter.sellerId = sellerIdQuery;
+  }
+
+  const bidderIdQuery = trimString(req.query.bidderId);
+  if (bidderIdQuery) {
+    if (!isAdminRole(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "Only Admin can filter properties by bidder",
+      });
+    }
+    if (!isValidObjectId(bidderIdQuery)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid bidder ID",
+      });
+    }
+    const propertyIds = await Bid.distinct("propertyId", {
+      userId: bidderIdQuery,
+    });
+    if (!propertyIds.length) {
+      return res.json({
+        success: true,
+        data: [],
+        pagination: buildPaginationMeta(page, limit, 0),
+      });
+    }
+    filter._id = { $in: propertyIds };
+  }
+
   const query = Property.find(filter)
     .sort({ createdAt: -1 })
     .skip(skip)
@@ -81,9 +127,39 @@ const getAll = async (req, res) => {
     Property.countDocuments(filter),
   ]);
 
+  let responseData = properties;
+  if (bidderIdQuery && properties.length) {
+    const bidderStats = await Bid.aggregate([
+      {
+        $match: {
+          userId: bidderIdQuery,
+          propertyId: { $in: properties.map((property) => property._id) },
+        },
+      },
+      {
+        $group: {
+          _id: "$propertyId",
+          bidderBidCount: { $sum: 1 },
+          bidderHighestBid: { $max: "$amount" },
+        },
+      },
+    ]);
+    const statsMap = new Map(
+      bidderStats.map((entry) => [String(entry._id), entry]),
+    );
+    responseData = properties.map((property) => {
+      const stats = statsMap.get(String(property._id));
+      return {
+        ...property,
+        bidderBidCount: stats?.bidderBidCount ?? 0,
+        bidderHighestBid: stats?.bidderHighestBid ?? null,
+      };
+    });
+  }
+
   res.json({
     success: true,
-    data: properties,
+    data: responseData,
     pagination: buildPaginationMeta(page, limit, total),
   });
 };

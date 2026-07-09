@@ -11,6 +11,8 @@ const {
   buildEndedStageFilter,
   buildLiveStageFilter,
   filterPropertiesForMonitorStage,
+  isPropertyEndedForMonitor,
+  isPropertyLiveForMonitor,
 } = require("../utils/auctionStageHelpers");
 const { buildPaginationMeta, parsePagination } = require("../utils/pagination");
 const {
@@ -205,7 +207,33 @@ const getMyBids = async (req, res) => {
 const liveMonitorPropertyFields =
   "title city microMarketLocality startingBidAmount auctionEndDateTime auctionStartDateTime auctionStatus images category";
 
+function resolveMonitorAuctionStage(property) {
+  if (isPropertyEndedForMonitor(property)) return "ended";
+  if (isPropertyLiveForMonitor(property)) return "live";
+  return "other";
+}
+
 function sortBidMonitorItems(data, status) {
+  if (status === "all") {
+    data.sort((a, b) => {
+      const aEnded = a.auctionStage === "ended" ? 1 : 0;
+      const bEnded = b.auctionStage === "ended" ? 1 : 0;
+      if (aEnded !== bEnded) return bEnded - aEnded;
+      if (aEnded) {
+        return (
+          new Date(b.auctionEndDateTime).getTime() -
+          new Date(a.auctionEndDateTime).getTime()
+        );
+      }
+      if (b.totalBids !== a.totalBids) return b.totalBids - a.totalBids;
+      return (
+        new Date(a.auctionEndDateTime).getTime() -
+        new Date(b.auctionEndDateTime).getTime()
+      );
+    });
+    return data;
+  }
+
   if (status === "ended") {
     data.sort((a, b) => {
       const endDiff =
@@ -235,7 +263,7 @@ function sortBidMonitorItems(data, status) {
   return data;
 }
 
-async function buildBidMonitorItems(properties) {
+async function buildBidMonitorItems(properties, filterBidderId = null) {
   if (!properties.length) return [];
 
   const propertyIds = properties.map((property) => property._id);
@@ -294,11 +322,14 @@ async function buildBidMonitorItems(properties) {
 
   return properties.map((property) => {
     const propertyId = String(property._id);
-    const bids = (bidsByProperty.get(propertyId) ?? []).map((bid) => ({
+    const propertyBids = (bidsByProperty.get(propertyId) ?? []).map((bid) => ({
       ...bid,
       isLeading: leadingBidIdByProperty.get(propertyId) === bid.bidId,
     }));
-    const leadingBid = bids.find((bid) => bid.isLeading) ?? null;
+    const bids = filterBidderId
+      ? propertyBids.filter((bid) => bid.userId === filterBidderId)
+      : propertyBids;
+    const leadingBid = propertyBids.find((bid) => bid.isLeading) ?? null;
     const currentBidAmount =
       topBidsByPropertyId[propertyId] ??
       parseIndianNumber(property.startingBidAmount);
@@ -314,8 +345,14 @@ async function buildBidMonitorItems(properties) {
       currentBidAmount,
       auctionStartDateTime: property.auctionStartDateTime ?? "",
       auctionEndDateTime: property.auctionEndDateTime ?? "",
+      auctionStatus: property.auctionStatus ?? "",
+      auctionStage: resolveMonitorAuctionStage(property),
       totalBids: bids.length,
-      uniqueBidders: uniqueBiddersByProperty.get(propertyId)?.size ?? 0,
+      uniqueBidders: filterBidderId
+        ? bids.length > 0
+          ? 1
+          : 0
+        : (uniqueBiddersByProperty.get(propertyId)?.size ?? 0),
       leadingBidder: leadingBid
         ? {
             userId: leadingBid.userId,
@@ -341,30 +378,78 @@ const getLiveBidMonitor = async (req, res) => {
     });
   }
 
-  const status = req.query.status === "ended" ? "ended" : "live";
+  const statusParam = String(req.query.status ?? "live").trim().toLowerCase();
+  const status = ["live", "ended", "all"].includes(statusParam)
+    ? statusParam
+    : "live";
+  const bidderIdQuery = String(req.query.bidderId ?? "").trim();
   const propertyFilter = {
     ...activePropertyFilter,
-    ...(status === "ended" ? buildEndedStageFilter() : buildLiveStageFilter()),
   };
+
+  if (status === "ended") {
+    Object.assign(propertyFilter, buildEndedStageFilter());
+  } else if (status === "live") {
+    Object.assign(propertyFilter, buildLiveStageFilter());
+  } else {
+    propertyFilter.auctionStatus = { $in: ["Live", "Ended"] };
+  }
 
   if (!isAdmin) {
     propertyFilter.sellerId = req.user._id;
   }
 
-  const properties = filterPropertiesForMonitorStage(
-    await Property.find(propertyFilter)
-      .select(liveMonitorPropertyFields)
-      .sort(
-        status === "ended"
-          ? { auctionEndDateTime: -1, createdAt: -1 }
-          : { auctionEndDateTime: 1, createdAt: -1 },
-      )
-      .lean(),
-    status,
-  );
+  let filterBidderId = null;
+  if (bidderIdQuery) {
+    if (!isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Only Admin can filter bid monitor by bidder",
+      });
+    }
+    if (!isValidObjectId(bidderIdQuery)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid bidder ID",
+      });
+    }
+    const propertyIds = await Bid.distinct("propertyId", {
+      userId: bidderIdQuery,
+    });
+    if (!propertyIds.length) {
+      return res.json({ success: true, data: [] });
+    }
+    propertyFilter._id = { $in: propertyIds };
+    filterBidderId = bidderIdQuery;
+  }
+
+  const fetchedProperties = await Property.find(propertyFilter)
+    .select(liveMonitorPropertyFields)
+    .sort(
+      status === "ended" || status === "all"
+        ? { auctionEndDateTime: -1, createdAt: -1 }
+        : { auctionEndDateTime: 1, createdAt: -1 },
+    )
+    .lean();
+
+  let properties = fetchedProperties;
+  if (status === "all") {
+    const ended = filterPropertiesForMonitorStage(fetchedProperties, "ended");
+    const live = filterPropertiesForMonitorStage(fetchedProperties, "live");
+    const seen = new Set();
+    properties = [];
+    for (const property of [...ended, ...live]) {
+      const propertyId = String(property._id);
+      if (seen.has(propertyId)) continue;
+      seen.add(propertyId);
+      properties.push(property);
+    }
+  } else {
+    properties = filterPropertiesForMonitorStage(fetchedProperties, status);
+  }
 
   const data = sortBidMonitorItems(
-    await buildBidMonitorItems(properties),
+    await buildBidMonitorItems(properties, filterBidderId),
     status,
   );
 
